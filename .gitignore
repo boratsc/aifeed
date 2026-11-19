@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+.taste-skill/
+.superpowers/
+data/
+.pytest_cache/
