@@ -43,7 +43,7 @@ def chat(settings: Settings, model: str, system: str, user: str,
     last_err = None
     # reasoning models spend tokens on thinking before content: generous budget
     payload = {"model": model, "messages": messages, "max_tokens": 8000}
-    with httpx.Client(verify=False, timeout=180) as client:
+    with httpx.Client(timeout=180) as client:
         for attempt in range(max_retries + 1):
             resp = client.post(
                 f"{settings.gateway_url}/chat/completions",

@@ -89,6 +89,11 @@ def test_update_article(store):
     assert art.updated_at >= art.published_at
 
 
+def test_cosine_rejects_mismatched_embedding_dimensions():
+    with pytest.raises(ValueError):
+        cosine([1.0, 0.0], [1.0])
+
+
 def test_cosine():
     assert cosine([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
     assert cosine([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)

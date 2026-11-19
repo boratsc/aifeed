@@ -30,6 +30,19 @@ def mock_transport(responses):
     return httpx.MockTransport(handler), calls
 
 
+def test_chat_verifies_tls_by_default(monkeypatch):
+    transport, _ = mock_transport(['{"ok": true}'])
+    options = {}
+
+    def client(**kwargs):
+        options.update(kwargs)
+        return _RealClient(transport=transport)
+
+    monkeypatch.setattr(httpx, "Client", client)
+    assert chat(make_settings(), "m", "sys", "usr") == {"ok": True}
+    assert options.get("verify", True) is True
+
+
 def test_chat_parses_clean_json(monkeypatch):
     transport, _ = mock_transport(['{"a": 1}'])
     monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=transport))
