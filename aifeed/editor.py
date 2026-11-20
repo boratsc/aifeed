@@ -92,6 +92,10 @@ def edit_article(settings, materials, sources):
         "Napisz rzeczowy artykuł po polsku, wyłącznie na podstawie podanych faktów. "
         "Tytuł ma wprost opisywać fakt. Unikaj metafor i zwrotów takich jak 'wchodzi do gry', 'rewolucja' i 'zmienia zasady gry'. "
         "Nie dodawaj wyników benchmarków ani cen, których nie ma w materiałach. "
+        "Nie wspominaj o ich braku, po prostu ich nie wymieniaj. "
+        "Nie opisuj procesu redakcji, klasyfikacji ani metodologii. "
+        "Nie pisz zdań typu 'temat został zakwalifikowany', 'artykuł opiera się wyłącznie', 'w materiale nie zamieszczono'. "
+        "Pisz wyłącznie fakty o produkcie lub narzędziu. "
         "Nie używaj znaku em dash. Zwróć JSON: title_pl, lead_pl, body_pl, category, bench, promo. "
         "body_pl ma najwyżej 450 słów. Źródła zostaną dołączone przez program."
     )
@@ -119,12 +123,24 @@ def edit_article(settings, materials, sources):
     return validate_article(article)
 
 
+META_PATTERNS = (
+    "temat został zakwalifikowany",
+    "artykuł opiera się wyłącznie",
+    "w materiale nie zamieszczono",
+    "materiał nie zawiera danych",
+    "opublikowany opis koncentruje się",
+)
+
+
 def validate_article(article):
     if not isinstance(article, dict):
         raise ValueError("article must be an object")
     for field in ("title_pl", "lead_pl", "body_pl", "category"):
         if not isinstance(article.get(field), str) or not article[field].strip():
             raise ValueError(f"{field} is required")
+    body_lower = article["body_pl"].lower()
+    if any(pattern in body_lower for pattern in META_PATTERNS):
+        raise ValueError("editorial meta-commentary in body")
     if len(article["body_pl"].split()) > 450:
         raise ValueError("article exceeds 450 words")
     sources = article.get("sources")

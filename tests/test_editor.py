@@ -147,3 +147,34 @@ def test_validate_article_rejects_unsafe_sources_and_empty_text():
     article["sources"] = []
     with pytest.raises(ValueError):
         validate_article(article)
+
+
+def test_validate_article_rejects_meta_commentary():
+    base = {"title_pl": "T", "lead_pl": "L", "category": "modele",
+            "sources": [{"name": "S", "url": "https://example.org"}]}
+    for meta in ("Temat został zakwalifikowany jako narzędzie.",
+                 "Artykuł opiera się wyłącznie na opisie producenta.",
+                 "W materiale nie zamieszczono danych o cenach.",
+                 "Materiał nie zawiera danych o testach.",
+                 "Opublikowany opis koncentruje się na charakterystyce."):
+        with pytest.raises(ValueError, match="meta"):
+            validate_article({**base, "body_pl": "Fakt o produkcie. " + meta})
+
+
+def test_validate_article_keeps_product_fact_about_missing_data():
+    article = {"title_pl": "T", "lead_pl": "L",
+               "body_pl": "Google nie podało ceny ani daty premiery. Funkcja jest dostępna w preview.",
+               "category": "modele", "sources": [{"name": "S", "url": "https://example.org"}]}
+    assert validate_article(article) == article
+
+
+def test_editor_prompt_forbids_narrating_compliance(monkeypatch):
+    import aifeed.editor as editor
+    captured = {}
+    def fake_chat(settings, model, system, user):
+        captured["system"] = system
+        return {"title_pl": "T", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    monkeypatch.setattr(editor, "chat", fake_chat)
+    editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
+    assert "Nie wspominaj o ich braku" in captured["system"]
+    assert "Nie opisuj procesu redakcji" in captured["system"]
