@@ -142,6 +142,23 @@ def group_materials(settings, materials):
     return clean
 
 
+BODY_DELIMITER = "---BODY---"
+
+
+def parse_article(raw: str) -> dict:
+    """Header JSON (meta bez body) + ---BODY--- + surowy markdown. Body nie
+    wymaga escapowania JSON, więc długi markdown z cudzysłowami i obrazami nie
+    łamie syntaxu (przyczyna 'Unterminated string'/'Expecting , delimiter')."""
+    from .llm import _strip_fence
+    raw = _strip_fence(raw)
+    if BODY_DELIMITER in raw:
+        header, body = raw.split(BODY_DELIMITER, 1)
+        meta = json.loads(_strip_fence(header))
+        meta["body_pl"] = body.strip()
+        return meta
+    return json.loads(_strip_fence(raw))
+
+
 def edit_article(settings, materials, sources):
     system = (
         "Jesteś technicznym redaktorem polskiego serwisu o AI dla programistów. "
@@ -157,10 +174,15 @@ def edit_article(settings, materials, sources):
         "Nie opisuj procesu redakcji, klasyfikacji ani metodologii. "
         "Nie pisz zdań typu 'temat został zakwalifikowany', 'artykuł opiera się wyłącznie', 'w materiale nie zamieszczono'. "
         "Pisz wyłącznie fakty o produkcie lub narzędziu. "
-        "Nie używaj znaku em dash. Zwróć JSON: title_pl, lead_pl, body_pl, category, bench, promo. "
-        "body_pl ma najwyżej 4000 słów (sufit techniczny, nie cel). Źródła zostaną dołączone przez program."
+        "Nie używaj znaku em dash. "
+        "Odpowiedz dokładnie w tym formacie: najpierw jedna linia JSON z polami "
+        "title_pl, lead_pl, category, bench (tablica lub null), promo (bool), bez pola body_pl; "
+        "potem linia z trzema myślnikami i słowem BODY: ---BODY---; potem treść artykułu jako czysty Markdown, "
+        "bez żadnego escapowania i bez znaków JSON. "
+        "body ma najwyżej 4000 słów (sufit techniczny, nie cel)."
     )
-    article = chat(settings, settings.editor_model, system, json.dumps(materials, ensure_ascii=False))
+    text = chat(settings, settings.editor_model, system, json.dumps(materials, ensure_ascii=False), json_mode=False)
+    article = parse_article(text)
     if not isinstance(article, dict):
         raise ValueError("editor response must be an object")
     article["sources"] = sources
@@ -173,8 +195,9 @@ def edit_article(settings, materials, sources):
         if "4000 words" not in str(exc):
             raise
     prompt = json.dumps({"materials": materials, "previous_article": article,
-                         "instruction": "Skróć body_pl do maksymalnie 4000 słów, zachowując najważniejsze fakty i atribucję. Zwróć pełny poprawny JSON artykułu."}, ensure_ascii=False)
-    article = chat(settings, settings.editor_model, system, prompt)
+                         "instruction": "Skróć treść do maksymalnie 4000 słów, zachowując najważniejsze fakty i atribucję. Zwróć ponownie w tym samym formacie: JSON z metadanymi, linia ---BODY---, potem czysty Markdown."}, ensure_ascii=False)
+    text = chat(settings, settings.editor_model, system, prompt, json_mode=False)
+    article = parse_article(text)
     if not isinstance(article, dict):
         raise ValueError("editor response must be an object")
     article["sources"] = sources

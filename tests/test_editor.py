@@ -102,8 +102,8 @@ def test_group_materials_keeps_complete_partition(monkeypatch):
 def test_edit_article_keeps_all_input_sources(monkeypatch):
     import aifeed.editor as editor
     sources = [{"name": "A", "url": "https://a.example/1"}, {"name": "B", "url": "https://b.example/2"}]
-    output = {"title_pl": "T", "lead_pl": "L", "body_pl": "B", "category": "modele", "sources": sources[:1]}
-    monkeypatch.setattr(editor, "chat", lambda *args: output)
+    output = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nB'
+    monkeypatch.setattr(editor, "chat", lambda *args, **kw: output)
     result = edit_article(Settings(), [{"title": "News", "content": "Facts", "url": sources[1]["url"], "source_id": "B"}], sources)
     assert result["sources"] == sources
     assert "—" not in result["title_pl"]
@@ -112,11 +112,11 @@ def test_edit_article_keeps_all_input_sources(monkeypatch):
 def test_overlong_article_is_shortened_by_editor(monkeypatch):
     import aifeed.editor as editor
     sources = [{"name": "S", "url": "https://example.org"}]
-    long = {"title_pl": "T", "lead_pl": "L", "body_pl": " ".join(["słowo"] * 4001), "category": "modele"}
-    short = {**long, "body_pl": "Krótka treść."}
+    long = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\n' + " ".join(["słowo"] * 4001)
+    short = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nKrótka treść.'
     responses = iter([long, short])
     calls = []
-    def fake_chat(settings, model, system, user):
+    def fake_chat(settings, model, system, user, **kw):
         calls.append(user)
         return next(responses)
     monkeypatch.setattr(editor, "chat", fake_chat)
@@ -142,9 +142,9 @@ def test_validate_article_accepts_long_faithful_translation():
 def test_editor_prompt_demands_faithful_translation(monkeypatch):
     import aifeed.editor as editor
     captured = {}
-    def fake_chat(settings, model, system, user):
+    def fake_chat(settings, model, system, user, **kw):
         captured["system"] = system
-        return {"title_pl": "T", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nB'
     monkeypatch.setattr(editor, "chat", fake_chat)
     editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
     assert "Przetłumacz" in captured["system"]
@@ -189,9 +189,9 @@ def test_validate_article_keeps_product_fact_about_missing_data():
 def test_editor_prompt_forbids_narrating_compliance(monkeypatch):
     import aifeed.editor as editor
     captured = {}
-    def fake_chat(settings, model, system, user):
+    def fake_chat(settings, model, system, user, **kw):
         captured["system"] = system
-        return {"title_pl": "T", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nB'
     monkeypatch.setattr(editor, "chat", fake_chat)
     editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
     assert "Nie wspominaj o ich braku" in captured["system"]
@@ -372,11 +372,48 @@ def test_parallel_workers_write_to_one_db(tmp_path, monkeypatch):
 def test_editor_prompt_preserves_figure_markdown(monkeypatch):
     import aifeed.editor as editor
     captured = {}
-    def fake_chat(settings, model, system, user):
+    def fake_chat(settings, model, system, user, **kw):
         captured["system"] = system
-        return {"title_pl": "T", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nB'
     monkeypatch.setattr(editor, "chat", fake_chat)
     editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
     assert "Obrazy" in captured["system"]
     assert "![](url)" in captured["system"]
     assert "nie pomijaj" in captured["system"]
+
+
+def test_parse_article_splits_header_json_and_raw_body():
+    from aifeed.editor import parse_article
+    raw = '{"title_pl": "T", "lead_pl": "L", "category": "modele", "bench": ["B"], "promo": false}\n\n---BODY---\n\n## Sekcja\nAkapit z "cudzysłowem" i ![wykres](https://x/y.png)\n'
+    a = parse_article(raw)
+    assert a["title_pl"] == "T"
+    assert a["category"] == "modele"
+    assert a["bench"] == ["B"]
+    assert a["body_pl"] == '## Sekcja\nAkapit z "cudzysłowem" i ![wykres](https://x/y.png)'
+
+
+def test_parse_article_body_never_needs_json_escaping():
+    from aifeed.editor import parse_article
+    body = '\n'.join(f'## Wiersz {i}\nTekst z "cudzysłowem", [link](https://x/{i}) i \nraw newline' for i in range(100))
+    raw = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\n' + body
+    a = parse_article(raw)
+    assert a["body_pl"] == body
+
+
+def test_parse_article_falls_back_to_full_json():
+    from aifeed.editor import parse_article
+    raw = '{"title_pl":"T","lead_pl":"L","body_pl":"B","category":"modele","bench":null,"promo":false}'
+    assert parse_article(raw)["body_pl"] == "B"
+
+
+def test_editor_prompt_uses_body_delimiter_not_json_body(monkeypatch):
+    import aifeed.editor as editor
+    captured = {}
+    def fake_chat(settings, model, system, user, **kw):
+        captured["system"] = system
+        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nB'
+    monkeypatch.setattr(editor, "chat", fake_chat)
+    a = editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
+    assert a["body_pl"] == "B"
+    assert "---BODY---" in captured["system"]
+    assert "JSON" in captured["system"]
