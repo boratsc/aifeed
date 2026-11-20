@@ -65,19 +65,24 @@ def group_materials(settings, materials):
     payload = [{"id": item["id"], "title": item.get("title"), "summary": item.get("summary_pl")} for item in materials]
     groups = chat(settings, settings.triage_model, system, json.dumps(payload, ensure_ascii=False))
     expected = {item["id"] for item in materials}
-    if not isinstance(groups, list) or not groups:
-        raise ValueError("groups must be a nonempty list")
+    if not isinstance(groups, list):
+        groups = []
+    # Sanitize: drop foreign/repeated IDs instead of failing the whole run (weak models return noise).
     seen = set()
+    clean = []
     for group in groups:
-        if not isinstance(group, list) or not group:
-            raise ValueError("each group must be a nonempty list")
+        if not isinstance(group, list):
+            continue
+        filtered = []
         for item_id in group:
-            if type(item_id) is not int or item_id not in expected or item_id in seen:
-                raise ValueError("unknown or repeated material ID")
-            seen.add(item_id)
-    # shortcut: missed items become singletons, add a second grouping pass if duplicates prove frequent.
-    groups.extend([[item["id"]] for item in materials if item["id"] not in seen])
-    return groups
+            if type(item_id) is int and item_id in expected and item_id not in seen:
+                seen.add(item_id)
+                filtered.append(item_id)
+        if filtered:
+            clean.append(filtered)
+    # Missed items become singletons so nothing is lost.
+    clean.extend([[item["id"]] for item in materials if item["id"] not in seen])
+    return clean
 
 
 def edit_article(settings, materials, sources):

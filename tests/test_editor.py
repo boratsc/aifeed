@@ -79,14 +79,18 @@ def test_save_new_article_creates_unique_slugs(tmp_path):
 from aifeed.config import Settings
 
 
-def test_group_materials_rejects_missing_or_foreign_ids(monkeypatch):
+def test_group_materials_sanitizes_missing_and_foreign_ids(monkeypatch):
     import aifeed.editor as editor
     materials = [{"id": 1}, {"id": 2}]
+    # missing ID -> singleton
     monkeypatch.setattr(editor, "chat", lambda *args: [[1]])
     assert group_materials(Settings(), materials) == [[1], [2]]
+    # foreign ID dropped, missing becomes singleton
     monkeypatch.setattr(editor, "chat", lambda *args: [[1, 99]])
-    with pytest.raises(ValueError):
-        group_materials(Settings(), materials)
+    assert group_materials(Settings(), materials) == [[1], [2]]
+    # repeated ID deduplicated within group
+    monkeypatch.setattr(editor, "chat", lambda *args: [[1, 1, 2]])
+    assert group_materials(Settings(), materials) == [[1, 2]]
 
 
 def test_group_materials_keeps_complete_partition(monkeypatch):
