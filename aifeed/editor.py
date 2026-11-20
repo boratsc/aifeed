@@ -144,6 +144,10 @@ def group_materials(settings, materials):
 
 
 BODY_DELIMITER = "---BODY---"
+# Surowy limit akceptowanej długości (sufit, nie cel). Instrukcja skracania
+# celuje niżej (SHORTEN_TO), bo modele słabo liczą słowa i lekko przekraczają cel.
+MAX_WORDS = 6000
+SHORTEN_TO = 5000
 
 
 def parse_article(raw: str) -> dict:
@@ -180,7 +184,7 @@ def edit_article(settings, materials, sources):
         "title_pl, lead_pl, category, bench (tablica lub null), promo (bool), bez pola body_pl; "
         "potem linia z trzema myślnikami i słowem BODY: ---BODY---; potem treść artykułu jako czysty Markdown, "
         "bez żadnego escapowania i bez znaków JSON. "
-        "body ma najwyżej 4000 słów (sufit techniczny, nie cel)."
+        "body ma najwyżej " + str(MAX_WORDS) + " słów (sufit techniczny, nie cel)."
     )
     text = chat(settings, settings.editor_model, system, json.dumps(materials, ensure_ascii=False), json_mode=False)
     article = parse_article(text)
@@ -193,10 +197,10 @@ def edit_article(settings, materials, sources):
     try:
         return validate_article(article)
     except ValueError as exc:
-        if "4000 words" not in str(exc):
+        if f"{MAX_WORDS} words" not in str(exc):
             raise
     prompt = json.dumps({"materials": materials, "previous_article": article,
-                         "instruction": "Skróć treść do maksymalnie 4000 słów, zachowując najważniejsze fakty i atribucję. Zwróć ponownie w tym samym formacie: JSON z metadanymi, linia ---BODY---, potem czysty Markdown."}, ensure_ascii=False)
+                         "instruction": f"Skróć treść do maksymalnie {SHORTEN_TO} słów, zachowując najważniejsze fakty i atribucję. Zwróć ponownie w tym samym formacie: JSON z metadanymi, linia ---BODY---, potem czysty Markdown."}, ensure_ascii=False)
     text = chat(settings, settings.editor_model, system, prompt, json_mode=False)
     article = parse_article(text)
     if not isinstance(article, dict):
@@ -226,8 +230,8 @@ def validate_article(article):
     body_lower = article["body_pl"].lower()
     if any(pattern in body_lower for pattern in META_PATTERNS):
         raise ValueError("editorial meta-commentary in body")
-    if len(article["body_pl"].split()) > 4000:
-        raise ValueError("article exceeds 4000 words")
+    if len(article["body_pl"].split()) > MAX_WORDS:
+        raise ValueError(f"article exceeds {MAX_WORDS} words")
     sources = article.get("sources")
     if not isinstance(sources, list) or not sources:
         raise ValueError("sources are required")
