@@ -50,7 +50,9 @@ def write_site(store, output_dir, site_url="https://ai.gradzik.org"):
         filtered = [article for article in articles if article.category == category]
         (categories_dir / f"{category}.html").write_text(render_feed(filtered, active_category=category), encoding="utf-8")
     env = Environment(autoescape=True)
-    rss = env.from_string('''<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>ai:///feed</title><link>{{ site_url }}</link><description>Wiadomości AI dla programistów</description>{% for a in articles[:50] %}<item><title>{{ a.title_pl }}</title><link>{{ site_url }}/a/{{ a.slug }}.html</link><guid>{{ site_url }}/a/{{ a.slug }}.html</guid><description>{{ a.lead_pl }}</description></item>{% endfor %}</channel></rss>''').render(articles=articles, site_url=site_url.rstrip("/"))
+    from email.utils import format_datetime
+    env.filters["rssdate"] = lambda ts: format_datetime(datetime.fromtimestamp(ts, timezone.utc))
+    rss = env.from_string('''<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>ai:///feed</title><link>{{ site_url }}</link><description>Wiadomości AI dla programistów</description>{% for a in articles[:50] %}<item><title>{{ a.title_pl }}</title><link>{{ site_url }}/a/{{ a.slug }}.html</link><guid>{{ site_url }}/a/{{ a.slug }}.html</guid><description>{{ a.lead_pl }}</description><pubDate>{{ a.published_at|rssdate }}</pubDate></item>{% endfor %}</channel></rss>''').render(articles=articles, site_url=site_url.rstrip("/"))
     (output / "rss.xml").write_text(rss, encoding="utf-8")
     for article in articles:
         previous = store.article_by_id(article.delta_of) if article.delta_of is not None else None

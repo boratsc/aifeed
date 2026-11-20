@@ -25,6 +25,7 @@ def test_write_site_creates_rss_with_article_links(tmp_path):
     assert "<rss" in rss
     assert "https://ai.gradzik.org/a/news.html" in rss
     assert "Tytuł" in rss
+    assert "<pubDate>Thu, 01 Jan 1970 00:00:01 +0000</pubDate>" in rss
 
 
 def test_write_site_creates_feed_and_article(tmp_path):
