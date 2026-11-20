@@ -51,7 +51,9 @@ def chat(settings: Settings, model: str, system: str, user: str,
                 headers={"Authorization": f"Bearer {settings.gateway_key}"},
             )
             resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"] or ""
+            message = resp.json()["choices"][0]["message"]
+            # Reasoning models (NIM/Nemotron/Mistral-T) return reasoning_content instead of content.
+            content = message.get("content") or message.get("reasoning_content") or ""
             if not json_mode:
                 return content
             try:

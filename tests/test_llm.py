@@ -43,6 +43,14 @@ def test_chat_verifies_tls_by_default(monkeypatch):
     assert options.get("verify", True) is True
 
 
+def test_chat_reads_reasoning_content_when_content_absent(monkeypatch):
+    def handler(request):
+        return httpx.Response(200, json={"choices": [{"message": {"content": None, "reasoning_content": '{"a": 3}'}}], "model": "test"})
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=transport))
+    assert chat(make_settings(), "m", "sys", "usr") == {"a": 3}
+
+
 def test_chat_parses_clean_json(monkeypatch):
     transport, _ = mock_transport(['{"a": 1}'])
     monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=transport))
