@@ -176,3 +176,60 @@ def test_parse_feed_rejects_items_without_http_link():
       <item><title>Bad</title><link>javascript:alert(1)</link></item>
     </channel></rss>'''
     assert parse_feed(feed) == []
+
+
+def test_extract_article_text_prefers_prose_over_main():
+    from aifeed.fetch import extract_article_text
+    html = b"<html><body><main>nav junk <div class='prose'><p>Prawdziwa tresc artykulu.</p></div> footer</main></body></html>"
+    assert extract_article_text(html) == "Prawdziwa tresc artykulu."
+
+
+def test_extract_article_text_falls_back_to_article_then_main():
+    from aifeed.fetch import extract_article_text
+    assert extract_article_text(b"<main>x<article>Tekst</article>y</main>") == "Tekst"
+    assert extract_article_text(b"<main>Tylko main</main>") == "Tylko main"
+
+
+def test_extract_article_text_returns_empty_on_garbage():
+    from aifeed.fetch import extract_article_text
+    assert extract_article_text(b"<html><body>nic</body></html>") == ""
+
+
+def test_ingest_backfills_empty_content_from_article_page():
+    import httpx
+    from aifeed.fetch import ingest_feeds
+    from aifeed.store import Store
+    import tempfile, os
+    store = Store(os.path.join(tempfile.mkdtemp(), "db"))
+    feed = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>
+    <item><title>T</title><link>https://example.org/post</link>
+    <pubDate>Fri, 20 Nov 2026 00:00:00 GMT</pubDate></item></channel></rss>"""
+    page = b"<html><main><div class='prose'><p>Pelna tresc publikacji.</p></div></main></html>"
+    def handler(request):
+        if str(request.url) == "https://example.org/feed":
+            return httpx.Response(200, content=feed)
+        return httpx.Response(200, content=page)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        ingest_feeds(client, store, {"src": "https://example.org/feed"}, 0)
+    row = store.db.execute("SELECT content FROM raw").fetchone()
+    assert row["content"] == "Pelna tresc publikacji."
+
+
+def test_ingest_keeps_rss_content_when_present():
+    import httpx
+    from aifeed.fetch import ingest_feeds
+    from aifeed.store import Store
+    import tempfile, os
+    store = Store(os.path.join(tempfile.mkdtemp(), "db"))
+    feed = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>
+    <item><title>T</title><link>https://example.org/post</link>
+    <pubDate>Fri, 20 Nov 2026 00:00:00 GMT</pubDate>
+    <description>Juz jest tresc z RSS.</description></item></channel></rss>"""
+    calls = []
+    def handler(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, content=feed)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        ingest_feeds(client, store, {"src": "https://example.org/feed"}, 0)
+    assert calls == ["https://example.org/feed"]  # bez dodatkowego fetcha strony
+    assert store.db.execute("SELECT content FROM raw").fetchone()["content"] == "Juz jest tresc z RSS."

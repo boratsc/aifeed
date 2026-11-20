@@ -13,6 +13,16 @@ class FetchError(Exception):
     """A source could not be interpreted as a feed."""
 
 
+def extract_article_text(data: bytes) -> str:
+    """Best-effort full-text extraction: .prose (HF/blog) > article > main."""
+    soup = BeautifulSoup(data, "html.parser")
+    for selector in (".prose", "article", "main"):
+        el = soup.select_one(selector)
+        if el:
+            return el.get_text(" ", strip=True)
+    return ""
+
+
 def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts: float) -> tuple[int, dict[str, str]]:
     items, errors = fetch_sources(client, sources)
     inserted = 0
@@ -20,6 +30,15 @@ def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts:
         published_at = item["published_at"]
         if published_at is None or published_at < since_ts:
             continue
+        if not item["content"]:
+            # RSS bez treści (HF, blog.google): dociągnij pełny tekst strony,
+            # inaczej redaktor dostaje sam tytuł i produkuje zajawkę.
+            try:
+                resp = client.get(item["url"], timeout=20, follow_redirects=True)
+                resp.raise_for_status()
+                item["content"] = extract_article_text(resp.content)
+            except httpx.HTTPError:
+                pass
         before = store.db.total_changes
         store.upsert_raw(item["source_id"], item["url"], item["title"], published_at, item["content"], item.get("og_image"))
         inserted += store.db.total_changes - before

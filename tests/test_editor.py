@@ -13,7 +13,7 @@ def test_invalid_article_does_not_block_other_groups(tmp_path, monkeypatch):
     monkeypatch.setattr(editor, "group_materials", lambda *args: [[ids[0]], [ids[1]]])
     def edit(settings, materials, sources):
         if materials[0]["id"] == ids[0]:
-            raise ValueError("article exceeds 450 words")
+            raise ValueError("article exceeds 2000 words")
         return {"title_pl": "Dobry", "lead_pl": "L", "body_pl": "B", "category": "modele", "sources": sources}
     monkeypatch.setattr(editor, "edit_article", edit)
     monkeypatch.setattr(editor, "classify_candidate", lambda *args: {"verdict": "new", "article_id": None, "embedding": [1.0]})
@@ -112,7 +112,7 @@ def test_edit_article_keeps_all_input_sources(monkeypatch):
 def test_overlong_article_is_shortened_by_editor(monkeypatch):
     import aifeed.editor as editor
     sources = [{"name": "S", "url": "https://example.org"}]
-    long = {"title_pl": "T", "lead_pl": "L", "body_pl": " ".join(["słowo"] * 451), "category": "modele"}
+    long = {"title_pl": "T", "lead_pl": "L", "body_pl": " ".join(["słowo"] * 2001), "category": "modele"}
     short = {**long, "body_pl": "Krótka treść."}
     responses = iter([long, short])
     calls = []
@@ -123,14 +123,32 @@ def test_overlong_article_is_shortened_by_editor(monkeypatch):
     result = editor.edit_article(Settings(), [{"title": "T"}], sources)
     assert result["body_pl"] == "Krótka treść."
     assert len(calls) == 2
-    assert "450" in calls[1]
+    assert "2000" in calls[1]
 
 
 def test_validate_article_rejects_overlong_body():
-    article = {"title_pl": "T", "lead_pl": "L", "body_pl": " ".join(["słowo"] * 451),
+    article = {"title_pl": "T", "lead_pl": "L", "body_pl": " ".join(["słowo"] * 2001),
                "category": "modele", "sources": [{"name": "S", "url": "https://example.org"}]}
     with pytest.raises(ValueError):
         validate_article(article)
+
+
+def test_validate_article_accepts_long_faithful_translation():
+    article = {"title_pl": "T", "lead_pl": "L", "body_pl": " ".join(["słowo"] * 1500),
+               "category": "modele", "sources": [{"name": "S", "url": "https://example.org"}]}
+    assert validate_article(article) == article
+
+
+def test_editor_prompt_demands_faithful_translation(monkeypatch):
+    import aifeed.editor as editor
+    captured = {}
+    def fake_chat(settings, model, system, user):
+        captured["system"] = system
+        return {"title_pl": "T", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    monkeypatch.setattr(editor, "chat", fake_chat)
+    editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
+    assert "Przetłumacz" in captured["system"]
+    assert "nie streszczaj" in captured["system"]
 
 
 def test_validate_article_requires_source_and_text():
@@ -240,7 +258,7 @@ def test_failed_group_is_retried_next_run(tmp_path, monkeypatch):
     monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[raw_id]])
     key = editor.group_key([raw_id])
     def bad(settings, materials, sources):
-        raise ValueError("article exceeds 450 words")
+        raise ValueError("article exceeds 2000 words")
     monkeypatch.setattr(editor, "edit_article", bad)
     assert editor.run(Settings(), store) == 0
     assert store.job(key)["state"] == "failed"
