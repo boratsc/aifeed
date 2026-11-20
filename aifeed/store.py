@@ -60,6 +60,11 @@ CREATE TABLE IF NOT EXISTS run_log (
     new_count INTEGER,
     errors_json TEXT
 );
+CREATE TABLE IF NOT EXISTS tool_version (
+    repo TEXT PRIMARY KEY,
+    tag TEXT,
+    fetched_at REAL
+);
 """
 
 
@@ -141,6 +146,19 @@ class Store:
     def mark_processed(self, raw_id: int):
         self.db.execute("INSERT OR IGNORE INTO processed_raw (raw_id) VALUES (?)", (raw_id,))
         self.db.commit()
+
+    def set_tool_versions(self, versions: dict[str, str]):
+        now = time.time()
+        for repo, tag in versions.items():
+            self.db.execute(
+                "INSERT INTO tool_version (repo, tag, fetched_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(repo) DO UPDATE SET tag = excluded.tag, fetched_at = excluded.fetched_at",
+                (repo, tag, now),
+            )
+        self.db.commit()
+
+    def tool_versions(self) -> dict[str, str]:
+        return {r["repo"]: r["tag"] for r in self.db.execute("SELECT repo, tag FROM tool_version")}
 
     def mark_triaged(self, raw_id: int, relevant: bool, category: str | None):
         self.db.execute(

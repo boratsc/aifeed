@@ -9,6 +9,7 @@ from .fetch import ingest_feeds
 from .render import write_site
 from .sources import RSS_SOURCES, HTML_SOURCES, API_SOURCES
 from .store import Store
+from .tools import fetch_tool_versions
 
 
 def run(settings, now=None):
@@ -19,6 +20,7 @@ def run(settings, now=None):
     since = last if last is not None else now - settings.backfill_days * 86400
     with httpx.Client() as client:
         _, errors = ingest_feeds(client, store, {**RSS_SOURCES, **HTML_SOURCES, **API_SOURCES}, since)
+        store.set_tool_versions(fetch_tool_versions(client))
     triage.run(settings, store)
     new_count = editor.run(settings, store)
     write_site(store, settings.out_dir, img_dir=settings.img_dir)
