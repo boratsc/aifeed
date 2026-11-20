@@ -1,0 +1,1 @@
+30 7,17 * * * cd /srv/aifeed/app && AIFEED_ENV=/srv/aifeed/.env /srv/aifeed/app/.venv/bin/python -m aifeed >> /srv/aifeed/data/pipeline.log 2>&1
