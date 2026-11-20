@@ -42,6 +42,13 @@ def test_write_site_creates_feed_and_article(tmp_path):
     assert "Tytuł" not in (output / "kat" / "cenniki.html").read_text()
 
 
+def test_article_never_renders_javascript_source_link():
+    from aifeed.store import Article
+    article = Article(1, "x", "Title", "Lead", "Body", "modele",
+                      [{"name": "Unsafe", "url": "javascript:alert(1)"}], None, None, [], 1, None, 1)
+    assert 'href="javascript:' not in render_article(article)
+
+
 def test_article_links_sources_and_previous_coverage():
     article = Article(2, "delta", "Nowe wyniki", "Lead", "Nowe fakty.", "modele",
                       [{"name": "Benchmark", "url": "https://example.org/bench"}], None, None, [], 2.0, 1, 2.0)
@@ -50,6 +57,8 @@ def test_article_links_sources_and_previous_coverage():
     assert 'href="https://example.org/bench"' in html
     assert 'href="/a/original.html"' in html
     assert "Nowe fakty." in html
+    assert 'name="viewport"' in html
+    assert 'class="article-layout"' in html
 from aifeed.store import Article
 
 

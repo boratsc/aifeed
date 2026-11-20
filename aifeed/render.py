@@ -4,6 +4,7 @@ import unicodedata
 from pathlib import Path
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+from urllib.parse import urlsplit
 from jinja2 import Environment, select_autoescape
 
 
@@ -23,13 +24,24 @@ def render_feed(articles, summary=None, next_page=None, active_category=None):
 
 def render_article(article, previous=None):
     env = Environment(autoescape=select_autoescape(["html"]))
-    return env.from_string('''<!doctype html><html lang="pl"><meta charset="utf-8"><title>{{ article.title_pl }}</title>
-<body><a href="/">Wróć do feedu</a><article><h1>{{ article.title_pl }}</h1><p>{{ article.lead_pl }}</p>
-<p>{{ article.body_pl }}</p>{% if previous %}<section><h2>Wcześniej o tym temacie</h2>
+    def safe_source(source):
+        url = source.get("url")
+        if not isinstance(url, str) or any(ord(char) < 32 for char in url):
+            return False
+        try:
+            parsed = urlsplit(url)
+            return parsed.scheme in {"http", "https"} and bool(parsed.hostname)
+        except ValueError:
+            return False
+    sources = [source for source in article.sources if isinstance(source, dict) and safe_source(source)]
+    return env.from_string('''<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ article.title_pl }} | ai:///feed</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#0d060b;color:#fff;font:17px/1.65 system-ui,sans-serif}header{border-bottom:1px solid #33202d;padding:20px 40px}.article-layout{max-width:1120px;margin:auto;padding:40px 20px}article{max-width:760px}h1{font-size:clamp(28px,4vw,38px);line-height:1.2;font-weight:500}h2{font-size:20px;font-weight:500;margin-top:36px}.lead{color:#c9bcc5}.body{white-space:pre-wrap;overflow-wrap:anywhere}.meta{font:12px monospace;color:#9a8f97}a{color:#ff488b}a:focus-visible{outline:2px solid #ff488b;outline-offset:3px}li{margin:12px 0}@media(max-width:600px){header{padding:16px 20px}.article-layout{padding:28px 20px}}</style></head>
+<body><header><a href="/">ai:///feed</a></header><main class="article-layout"><a href="/">← wróć do feedu</a><article><p class="meta">{{ article.category }}</p><h1>{{ article.title_pl }}</h1><p class="lead">{{ article.lead_pl }}</p>
+<div class="body">{{ article.body_pl }}</div>{% if previous %}<section><h2>Wcześniej o tym temacie</h2>
 <a href="/a/{{ previous.slug }}.html">{{ previous.title_pl }}</a></section>{% endif %}
-<section><h2>Źródła</h2><ul>{% for source in article.sources %}
+<section><h2>Źródła</h2><ul>{% for source in sources %}
 <li><a href="{{ source.url }}" rel="noopener noreferrer">{{ source.name }}</a></li>{% endfor %}</ul></section>
-</article></body></html>''').render(article=article, previous=previous)
+</article></main></body></html>''').render(article=article, previous=previous, sources=sources)
 
 
 def write_site(store, output_dir, site_url="https://ai.gradzik.org"):
