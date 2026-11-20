@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from jinja2 import Environment, select_autoescape
 
 
-def render_feed(articles, summary=None):
+def render_feed(articles, summary=None, next_page=None):
     env = Environment(autoescape=select_autoescape(["html"]))
     env.filters["time"] = lambda ts: datetime.fromtimestamp(ts, ZoneInfo("Europe/Warsaw")).strftime("%H:%M")
     env.filters["iso"] = lambda ts: datetime.fromtimestamp(ts, timezone.utc).isoformat()
@@ -16,9 +16,9 @@ def render_feed(articles, summary=None):
 <style>:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#0d060b;color:#fff;font:14px/1.5 "IBM Plex Sans",system-ui,sans-serif}a{color:#ff488b;text-decoration:none}a:hover{text-decoration:underline}a:focus-visible{outline:2px solid #ff488b;outline-offset:3px}.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}.top{height:64px;border-bottom:1px solid #33202d;display:flex;align-items:center;padding:0 20px;gap:12px}.brand{color:#fff;font-size:17px}.cursor{width:8px;height:14px;background:#ff488b}.tagline{color:#9a8f97;font-size:13px}.top .rss{margin-left:auto;color:#9a8f97}.feed-layout{display:grid;grid-template-columns:minmax(0,1fr);min-width:0}.feed-layout>*{min-width:0}.news-item h2,.news-item p{overflow-wrap:anywhere}.categories{padding:24px 20px}.categories h2,.rail h2{font:11px "IBM Plex Mono",monospace;color:#9a8f97}.categories nav{display:flex;gap:16px;overflow:auto}.categories a{white-space:nowrap;color:#9a8f97;font:13px "IBM Plex Mono",monospace;padding:6px 0}.categories a.active{color:#fff}.feed-list{padding:0 20px 32px}.feed-list h1{font-size:20px;font-weight:500;margin:20px 0}.news-item{padding:20px 0;border-bottom:1px solid #33202d}.news-item h2{font-size:17px;font-weight:500;margin:0 0 8px}.news-item h2 a{color:#fff}.news-item p{color:#9a8f97;font-size:13.5px;margin:0 0 10px}.meta{font:11px "IBM Plex Mono",monospace;color:#9a8f97}.rail{padding:24px 20px;color:#9a8f97}.rail p{color:#fff;font-size:13px}.footer{padding:20px;border-top:1px solid #33202d;color:#9a8f97;font:12px "IBM Plex Mono",monospace;display:flex;justify-content:space-between;gap:16px}@media(min-width:1000px){.top{padding:0 40px}.feed-layout{grid-template-columns:260px minmax(0,780px) minmax(240px,1fr);max-width:1440px;margin:auto}.categories{border-right:1px solid #33202d;padding:36px 30px}.categories nav{display:block}.categories a{display:block;padding:8px 10px;margin-left:-10px}.categories a.active{background:#1b0e17;border:1px solid #33202d}.feed-list{padding:36px 0 32px}.rail{border-left:1px solid #33202d;padding:36px 30px}.footer{padding:20px 40px}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}</style>
 </head><body><header class="top"><a class="brand mono" href="/">ai:///feed</a><span class="cursor" aria-hidden="true"></span><span class="tagline mono">/ news dla builderów</span><a class="rss mono" href="/rss.xml">rss.xml ↗</a></header>
 <div class="feed-layout"><aside class="categories"><h2>FEED / KATEGORIE</h2><nav aria-label="Kategorie"><a class="active" href="/">› Wszystko</a><a href="/kat/modele.html">· Modele</a><a href="/kat/narzedzia.html">· Narzędzia</a><a href="/kat/open-source.html">· Open source</a><a href="/kat/cenniki.html">· Cenniki</a><a href="/kat/badania.html">· Badania</a><a href="/kat/infrastruktura.html">· Infrastruktura</a></nav></aside>
-<main class="feed-list" id="content">{% if summary %}<aside class="summary"><span class="meta">~ w skrócie /</span><p>{{ summary }}</p></aside>{% endif %}<h1>Najnowsze</h1>{% for article in articles %}<article class="news-item"><time class="meta" datetime="{{ article.published_at|iso }}">{{ article.published_at|time }}</time><h2><a href="/a/{{ article.slug }}.html">{{ article.title_pl }}</a></h2><p>{{ article.lead_pl }}</p><span class="meta">{{ article.category }}</span></article>{% endfor %}</main>
+<main class="feed-list" id="content">{% if summary %}<aside class="summary"><span class="meta">~ w skrócie /</span><p>{{ summary }}</p></aside>{% endif %}<h1>Najnowsze</h1>{% for article in articles %}<article class="news-item"><time class="meta" datetime="{{ article.published_at|iso }}">{{ article.published_at|time }}</time><h2><a href="/a/{{ article.slug }}.html">{{ article.title_pl }}</a></h2><p>{{ article.lead_pl }}</p><span class="meta">{{ article.category }}</span></article>{% endfor %}{% if next_page %}<a class="older" href="{{ next_page }}">+ pokaż więcej</a>{% endif %}</main>
 <aside class="rail feed-rail"><h2>// czytasz, bo budujesz</h2><p>Zero sponsorowanych rankingów „top 10 AI tools”.</p><span>Tylko wiadomości, które mogą coś zmienić w Twoim stacku.</span></aside></div>
-<footer class="footer"><span>ai:///feed © 2026</span><span>no tracking · no noise · just signal</span></footer></body></html>''').render(articles=articles, summary=summary)
+<footer class="footer"><span>ai:///feed © 2026</span><span>no tracking · no noise · just signal</span></footer></body></html>''').render(articles=articles, summary=summary, next_page=next_page)
 
 
 def render_article(article, previous=None):
@@ -37,7 +37,13 @@ def write_site(store, output_dir, site_url="https://ai.gradzik.org"):
     articles_dir = output / "a"
     articles_dir.mkdir(parents=True, exist_ok=True)
     articles = store.articles_since(0)
-    (output / "index.html").write_text(render_feed(articles), encoding="utf-8")
+    pages = [articles[i:i+30] for i in range(0, len(articles), 30)] or [[]]
+    (output / "index.html").write_text(render_feed(pages[0], next_page="/page/2.html" if len(pages)>1 else None), encoding="utf-8")
+    pages_dir = output / "page"
+    pages_dir.mkdir(parents=True, exist_ok=True)
+    for number, page in enumerate(pages[1:], 2):
+        next_link = f"/page/{number+1}.html" if number < len(pages) else None
+        (pages_dir / f"{number}.html").write_text(render_feed(page, next_page=next_link), encoding="utf-8")
     categories_dir = output / "kat"
     categories_dir.mkdir(parents=True, exist_ok=True)
     for category in ("modele", "narzedzia", "open-source", "cenniki", "badania", "infrastruktura"):

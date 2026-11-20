@@ -4,6 +4,18 @@ from aifeed.render import slugify, render_feed, render_article, write_site
 from aifeed.store import Store
 
 
+def test_write_site_paginates_older_news(tmp_path):
+    store = Store(str(tmp_path / "db"))
+    for i in range(31):
+        store.add_article(f"news-{i}", f"Tytuł {i}", "Lead", "Treść", "modele", [], None, None, [], 1000.0-i, None)
+    output = tmp_path / "site"
+    write_site(store, str(output))
+    assert "Tytuł 0" in (output / "index.html").read_text()
+    assert "Tytuł 30" not in (output / "index.html").read_text()
+    assert "Tytuł 30" in (output / "page" / "2.html").read_text()
+    assert 'href="/page/2.html"' in (output / "index.html").read_text()
+
+
 def test_write_site_creates_rss_with_article_links(tmp_path):
     store = Store(str(tmp_path / "db"))
     store.add_article("news", "Tytuł", "Lead", "Treść", "modele", [], None, None, [], 1.0, None)
