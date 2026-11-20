@@ -5,3 +5,6 @@ __pycache__/
 .superpowers/
 data/
 .pytest_cache/
+*.egg-info/
+.venv/
+preview/

@@ -1,0 +1,14 @@
+services:
+  pipeline:
+    build: .
+    env_file: .env
+    volumes:
+      - ./data:/data
+    profiles: ["run"]
+  www:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data/out:/usr/share/nginx/html:ro
+    restart: unless-stopped
