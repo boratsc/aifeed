@@ -1,6 +1,8 @@
 """OpenAI-compatible chat client for the LLM gateway, with JSON validation + retry."""
 import json
+import random
 import re
+import time
 
 import httpx
 
@@ -49,29 +51,39 @@ def chat(settings: Settings, model: str, system: str, user: str,
         for attempt in range(max_retries + 1):
             parts: list[str] = []
             reasoning: list[str] = []
-            with client.stream(
-                "POST",
-                f"{settings.gateway_url}/chat/completions",
-                json=payload,
-                headers={"Authorization": f"Bearer {settings.gateway_key}"},
-            ) as resp:
-                resp.raise_for_status()
-                for line in resp.iter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    data = line[5:].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data)
-                    except (json.JSONDecodeError, ValueError):
-                        continue
-                    for choice in chunk.get("choices", []):
-                        delta = choice.get("delta", {})
-                        if delta.get("content"):
-                            parts.append(delta["content"])
-                        if delta.get("reasoning_content"):
-                            reasoning.append(delta["reasoning_content"])
+            # 429/503: back off and retry the SAME model. Relying on the gateway's
+            # fill-first fallback here risks 400 "must be passed back" when a
+            # reasoning request lands on a non-reasoning provider mid-flight.
+            for http_attempt in range(settings.editor_429_retries + 1):
+                try:
+                    with client.stream(
+                        "POST",
+                        f"{settings.gateway_url}/chat/completions",
+                        json=payload,
+                        headers={"Authorization": f"Bearer {settings.gateway_key}"},
+                    ) as resp:
+                        resp.raise_for_status()
+                        for line in resp.iter_lines():
+                            if not line.startswith("data:"):
+                                continue
+                            data = line[5:].strip()
+                            if data == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(data)
+                            except (json.JSONDecodeError, ValueError):
+                                continue
+                            for choice in chunk.get("choices", []):
+                                delta = choice.get("delta", {})
+                                if delta.get("content"):
+                                    parts.append(delta["content"])
+                                if delta.get("reasoning_content"):
+                                    reasoning.append(delta["reasoning_content"])
+                    break
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code not in (429, 503) or http_attempt == settings.editor_429_retries:
+                        raise
+                    time.sleep(2 ** (http_attempt + 1) + random.uniform(0, 1))
             # Reasoning models (NIM/Nemotron/Mistral-T) may return only reasoning_content.
             content = "".join(parts) or "".join(reasoning)
             if not json_mode:

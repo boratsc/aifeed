@@ -125,3 +125,42 @@ def test_embed_returns_vector(monkeypatch):
     transport = httpx.MockTransport(handler)
     monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=transport))
     assert vector(make_settings(), "text") == [0.1, 0.2, 0.3]
+
+
+def test_chat_backs_off_on_429_then_succeeds(monkeypatch):
+    calls = {"n": 0}
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            return httpx.Response(429)
+        return httpx.Response(200, content=_sse('{"ok": true}').encode(),
+                              headers={"content-type": "text/event-stream"})
+    monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=httpx.MockTransport(handler)))
+    slept = []
+    import aifeed.llm as llm
+    monkeypatch.setattr(llm.time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(llm.random, "uniform", lambda a, b: 0.0)
+    assert chat(make_settings(), "m", "sys", "usr") == {"ok": True}
+    assert calls["n"] == 3
+    assert slept == [2.0, 4.0]
+
+
+def test_chat_gives_up_after_429_retries(monkeypatch):
+    def handler(request):
+        return httpx.Response(429)
+    monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=httpx.MockTransport(handler)))
+    import aifeed.llm as llm
+    monkeypatch.setattr(llm.time, "sleep", lambda s: None)
+    with pytest.raises(httpx.HTTPStatusError):
+        chat(make_settings(), "m", "sys", "usr")
+
+
+def test_chat_does_not_retry_400(monkeypatch):
+    calls = {"n": 0}
+    def handler(request):
+        calls["n"] += 1
+        return httpx.Response(400)
+    monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=httpx.MockTransport(handler)))
+    with pytest.raises(httpx.HTTPStatusError):
+        chat(make_settings(), "m", "sys", "usr")
+    assert calls["n"] == 1
