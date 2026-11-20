@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS editor_job (
     state TEXT NOT NULL,
     started_at REAL,
     updated_at REAL,
-    article_id INTEGER
+    article_id INTEGER,
+    model TEXT
 );
 """
 
@@ -131,6 +132,10 @@ class Store:
         if "image" not in article_cols:
             self.db.execute("ALTER TABLE article ADD COLUMN image TEXT")
             self.db.commit()
+        job_cols = {row[1] for row in self.db.execute("PRAGMA table_info(editor_job)")}
+        if "model" not in job_cols:
+            self.db.execute("ALTER TABLE editor_job ADD COLUMN model TEXT")
+            self.db.commit()
 
     def upsert_raw(self, source_id, url, title, published_at, content, og_image) -> int:
         cur = self.db.execute(
@@ -161,20 +166,20 @@ class Store:
     def mark_running(self, group_key: str):
         now = time.time()
         self.db.execute(
-            "INSERT INTO editor_job (group_key, state, started_at, updated_at, article_id) "
-            "VALUES (?, 'running', ?, ?, NULL) ON CONFLICT(group_key) DO UPDATE SET "
-            "state = 'running', started_at = excluded.started_at, updated_at = excluded.updated_at, article_id = NULL",
+            "INSERT INTO editor_job (group_key, state, started_at, updated_at, article_id, model) "
+            "VALUES (?, 'running', ?, ?, NULL, NULL) ON CONFLICT(group_key) DO UPDATE SET "
+            "state = 'running', started_at = excluded.started_at, updated_at = excluded.updated_at, article_id = NULL, model = NULL",
             (group_key, now, now),
         )
         self.db.commit()
 
-    def mark_done(self, group_key: str, article_id: int):
+    def mark_done(self, group_key: str, article_id: int, model: str | None = None):
         now = time.time()
         self.db.execute(
-            "INSERT INTO editor_job (group_key, state, started_at, updated_at, article_id) "
-            "VALUES (?, 'done', ?, ?, ?) ON CONFLICT(group_key) DO UPDATE SET "
-            "state = 'done', article_id = excluded.article_id, updated_at = excluded.updated_at",
-            (group_key, now, now, article_id),
+            "INSERT INTO editor_job (group_key, state, started_at, updated_at, article_id, model) "
+            "VALUES (?, 'done', ?, ?, ?, ?) ON CONFLICT(group_key) DO UPDATE SET "
+            "state = 'done', article_id = excluded.article_id, updated_at = excluded.updated_at, model = excluded.model",
+            (group_key, now, now, article_id, model),
         )
         self.db.commit()
 

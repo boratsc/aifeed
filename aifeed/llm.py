@@ -2,6 +2,7 @@
 import json
 import random
 import re
+import threading
 import time
 
 import httpx
@@ -10,6 +11,14 @@ from .config import Settings
 
 # Polish typography rule: no em dashes. URLs are protected before replacement.
 _URL_RE = re.compile(r"https?://\S+")
+
+# Który model faktycznie odpowiedział (gateway fill-first może podmienić).
+# Thread-local: chat jest współdzielony przez 4 workery edytora.
+_state = threading.local()
+
+
+def last_model() -> str | None:
+    return getattr(_state, "model", None)
 
 
 class LLMError(Exception):
@@ -73,6 +82,9 @@ def chat(settings: Settings, model: str, system: str, user: str,
                                 chunk = json.loads(data)
                             except (json.JSONDecodeError, ValueError):
                                 continue
+                            model = chunk.get("model")
+                            if model:
+                                _state.model = model
                             for choice in chunk.get("choices", []):
                                 delta = choice.get("delta", {})
                                 if delta.get("content"):

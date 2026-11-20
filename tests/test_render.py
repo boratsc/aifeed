@@ -146,3 +146,12 @@ def test_slugify_polish_title():
 def test_slugify_rejects_empty_title():
     with pytest.raises(ValueError):
         slugify("???")
+
+
+def test_article_images_constrained_and_zoomable():
+    from aifeed.store import Article
+    article = Article(1, "x", "T", "L", "## S\n\n![wykres](https://x/y.png)", "modele", [], None, None, [], 1, None, 1)
+    html = render_article(article)
+    assert "max-width:100%" in html
+    assert "lightbox" in html.lower()
+    assert 'cursor:zoom-in' in html

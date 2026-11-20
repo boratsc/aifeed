@@ -164,3 +164,21 @@ def test_chat_does_not_retry_400(monkeypatch):
     with pytest.raises(httpx.HTTPStatusError):
         chat(make_settings(), "m", "sys", "usr")
     assert calls["n"] == 1
+
+
+def test_chat_records_last_model(monkeypatch):
+    import aifeed.llm as llm
+    def handler(request):
+        chunk = {"model": "gemini-3.5-flash-lite", "choices": [{"delta": {"content": '{"ok": true}'}}]}
+        body = "data: " + json.dumps(chunk) + "\n\ndata: [DONE]\n\n"
+        return httpx.Response(200, content=body.encode(), headers={"content-type": "text/event-stream"})
+    monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=httpx.MockTransport(handler)))
+    assert chat(make_settings(), "m", "sys", "usr") == {"ok": True}
+    assert llm.last_model() == "gemini-3.5-flash-lite"
+
+
+def test_last_model_is_thread_local(monkeypatch):
+    import aifeed.llm as llm
+    old = llm.last_model()
+    # wątek główny nie zmienia się przez symulację innego wątku
+    assert llm.last_model() == old

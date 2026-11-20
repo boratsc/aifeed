@@ -7,7 +7,7 @@ import logging
 import threading
 import time
 
-from .llm import chat, clean_pl
+from .llm import chat, clean_pl, last_model
 from .render import slugify
 from .store import Store
 from .dedup import classify_candidate
@@ -68,6 +68,7 @@ def _process_group(settings, db_path, key, group, sources, image):
     ticker.start()
     try:
         article = edit_article(settings, group, sources)
+        model = last_model()
         if image and isinstance(article, dict):
             article["image"] = image
         with _save_lock:
@@ -89,7 +90,7 @@ def _process_group(settings, db_path, key, group, sources, image):
                 raise ValueError("unknown editorial decision")
             for item in group:
                 store.mark_processed(item["id"])
-            store.mark_done(key, article_id)
+            store.mark_done(key, article_id, model=model)
         return count
     except Exception as exc:
         # Any failure (validation, gateway 4xx, embed timeout) must leave the
