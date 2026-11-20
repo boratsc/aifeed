@@ -129,6 +129,16 @@ def test_render_feed_escapes_untrusted_title():
     assert 'href="/a/news.html"' in html
 
 
+def test_tool_tag_encodes_at_sign_against_cloudflare_email_mangling():
+    from aifeed.store import Article
+    article = Article(1, "x", "T", "L", "B", "modele", [], None, None, [], 1.0, None, 1.0)
+    tool_versions = [{"name": "Vercel AI SDK", "repo": "vercel/ai", "tag": "@ai-sdk/workflow-harness@1.0.188"}]
+    html = render_feed([article], tool_versions=tool_versions)
+    # A bare "@" in the middle of text is what Cloudflare Email Obfuscation rewrites.
+    assert "@ai-sdk/workflow-harness@1.0.188" not in html
+    assert "&#64;ai-sdk/workflow-harness&#64;1.0.188" in html
+
+
 def test_slugify_polish_title():
     assert slugify("Nowy model: zmiany cen API") == "nowy-model-zmiany-cen-api"
 

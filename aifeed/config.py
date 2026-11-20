@@ -13,7 +13,7 @@ class Settings:
     embed_model: str = "qwen3-embedding:0.6b"
     db_path: str = "data/aifeed.db"
     out_dir: str = "data/out"
-    img_dir: str = "data/img"
+    img_dir: str = "data/out/img"
     bercik_url: str = ""
     bercik_token: str = ""
     dedup_days: int = 14

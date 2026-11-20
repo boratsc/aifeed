@@ -12,6 +12,9 @@ import httpx
 
 def render_feed(articles, summary=None, next_page=None, active_category=None, tool_versions=None):
     env = Environment(autoescape=select_autoescape(["html"]))
+    # Encode "@" so Cloudflare's Email Obfuscation doesn't rewrite scoped tool tags.
+    from markupsafe import Markup
+    env.filters["deobfuscate"] = lambda s: Markup(str(s).replace("@", "&#64;"))
     env.filters["time"] = lambda ts: datetime.fromtimestamp(ts, ZoneInfo("Europe/Warsaw")).strftime("%H:%M")
     env.filters["iso"] = lambda ts: datetime.fromtimestamp(ts, timezone.utc).isoformat()
     tool_versions = tool_versions or []
@@ -21,7 +24,7 @@ def render_feed(articles, summary=None, next_page=None, active_category=None, to
 </head><body><header class="top"><a class="brand mono" href="/">ai:///feed</a><span class="cursor" aria-hidden="true"></span><span class="tagline mono">/ news dla builderów</span><a class="rss mono" href="/rss.xml">rss.xml ↗</a></header>
 <div class="feed-layout"><aside class="categories"><h2>FEED / KATEGORIE</h2><nav aria-label="Kategorie"><a {% if not active_category %}class="active"{% endif %} href="/">› Wszystko</a>{% for slug,label in [("modele","Modele"),("narzedzia","Narzędzia"),("open-source","Open source"),("cenniki","Cenniki"),("badania","Badania"),("infrastruktura","Infrastruktura")] %}<a {% if active_category==slug %}class="active"{% endif %} href="/kat/{{ slug }}.html">· {{ label }}</a>{% endfor %}</nav></aside>
 <main class="feed-list" id="content">{% if summary %}<aside class="summary"><span class="meta">~ w skrócie /</span><p>{{ summary }}</p></aside>{% endif %}<h1>Najnowsze</h1>{% for article in articles %}<article class="news-item"><div class="news-body">{% if article.image %}<a href="/a/{{ article.slug }}.html"><img class="thumb" src="/img/{{ article.image }}" alt="" loading="lazy"></a>{% endif %}<div><time class="meta" datetime="{{ article.published_at|iso }}">{{ article.published_at|time }}</time><h2><a href="/a/{{ article.slug }}.html">{{ article.title_pl }}</a></h2><p>{{ article.lead_pl }}</p><span class="meta">{{ article.category }}</span></div></div></article>{% endfor %}{% if next_page %}<a class="older" href="{{ next_page }}">+ pokaż więcej</a>{% endif %}</main>
-<aside class="rail feed-rail"><h2>// narzędzia</h2><ul class="tool-list">{% for tool in tool_versions %}<li><span class="tool-name">{{ tool.name }}</span>{% if tool.tag %}<span class="tool-tag">{{ tool.tag }}</span>{% else %}<span class="tool-tag">—</span>{% endif %}<a class="tool-link" href="https://github.com/{{ tool.repo }}/releases" rel="noopener noreferrer">↗</a></li>{% endfor %}</ul></aside></div>
+<aside class="rail feed-rail"><h2>// narzędzia</h2><ul class="tool-list">{% for tool in tool_versions %}<li><span class="tool-name">{{ tool.name }}</span>{% if tool.tag %}<span class="tool-tag">{{ tool.tag | deobfuscate }}</span>{% else %}<span class="tool-tag">—</span>{% endif %}<a class="tool-link" href="https://github.com/{{ tool.repo }}/releases" rel="noopener noreferrer">↗</a></li>{% endfor %}</ul></aside></div>
 <footer class="footer"><span>ai:///feed © 2026</span><span>no tracking · no noise · just signal</span></footer></body></html>''').render(articles=articles, summary=summary, next_page=next_page, active_category=active_category, tool_versions=tool_versions)
 
 
