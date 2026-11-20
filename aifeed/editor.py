@@ -158,7 +158,7 @@ def edit_article(settings, materials, sources):
         "Nie pisz zdań typu 'temat został zakwalifikowany', 'artykuł opiera się wyłącznie', 'w materiale nie zamieszczono'. "
         "Pisz wyłącznie fakty o produkcie lub narzędziu. "
         "Nie używaj znaku em dash. Zwróć JSON: title_pl, lead_pl, body_pl, category, bench, promo. "
-        "body_pl ma najwyżej 2000 słów (sufit techniczny, nie cel). Źródła zostaną dołączone przez program."
+        "body_pl ma najwyżej 4000 słów (sufit techniczny, nie cel). Źródła zostaną dołączone przez program."
     )
     article = chat(settings, settings.editor_model, system, json.dumps(materials, ensure_ascii=False))
     if not isinstance(article, dict):
@@ -170,10 +170,10 @@ def edit_article(settings, materials, sources):
     try:
         return validate_article(article)
     except ValueError as exc:
-        if "2000 words" not in str(exc):
+        if "4000 words" not in str(exc):
             raise
     prompt = json.dumps({"materials": materials, "previous_article": article,
-                         "instruction": "Skróć body_pl do maksymalnie 2000 słów, zachowując najważniejsze fakty i atribucję. Zwróć pełny poprawny JSON artykułu."}, ensure_ascii=False)
+                         "instruction": "Skróć body_pl do maksymalnie 4000 słów, zachowując najważniejsze fakty i atribucję. Zwróć pełny poprawny JSON artykułu."}, ensure_ascii=False)
     article = chat(settings, settings.editor_model, system, prompt)
     if not isinstance(article, dict):
         raise ValueError("editor response must be an object")
@@ -202,8 +202,8 @@ def validate_article(article):
     body_lower = article["body_pl"].lower()
     if any(pattern in body_lower for pattern in META_PATTERNS):
         raise ValueError("editorial meta-commentary in body")
-    if len(article["body_pl"].split()) > 2000:
-        raise ValueError("article exceeds 2000 words")
+    if len(article["body_pl"].split()) > 4000:
+        raise ValueError("article exceeds 4000 words")
     sources = article.get("sources")
     if not isinstance(sources, list) or not sources:
         raise ValueError("sources are required")
