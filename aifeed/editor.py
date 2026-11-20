@@ -95,19 +95,7 @@ def edit_article(settings, materials, sources):
         "Nie używaj znaku em dash. Zwróć JSON: title_pl, lead_pl, body_pl, category, bench, promo. "
         "body_pl ma najwyżej 450 słów. Źródła zostaną dołączone przez program."
     )
-    models = [m for m in (settings.editor_model, settings.editor_fallback) if m]
-    last_exc = None
-    for model in models:
-        try:
-            return _edit_with_model(settings, model, system, materials, sources)
-        except Exception as exc:
-            last_exc = exc
-            logging.warning("Redakcja nieudana dla modelu %s: %s", model, exc)
-    raise last_exc or ValueError("no editor model configured")
-
-
-def _edit_with_model(settings, model, system, materials, sources):
-    article = chat(settings, model, system, json.dumps(materials, ensure_ascii=False))
+    article = chat(settings, settings.editor_model, system, json.dumps(materials, ensure_ascii=False))
     if not isinstance(article, dict):
         raise ValueError("editor response must be an object")
     article["sources"] = sources
@@ -121,7 +109,7 @@ def _edit_with_model(settings, model, system, materials, sources):
             raise
     prompt = json.dumps({"materials": materials, "previous_article": article,
                          "instruction": "Skróć body_pl do maksymalnie 450 słów, zachowując najważniejsze fakty i atribucję. Zwróć pełny poprawny JSON artykułu."}, ensure_ascii=False)
-    article = chat(settings, model, system, prompt)
+    article = chat(settings, settings.editor_model, system, prompt)
     if not isinstance(article, dict):
         raise ValueError("editor response must be an object")
     article["sources"] = sources

@@ -9,7 +9,6 @@ class Settings:
     gateway_key: str = ""
     triage_model: str = "deepseek-flash-direct"
     editor_model: str = "digest-editor"
-    editor_fallback: str = ""
     embed_url: str = "http://localhost:11434"
     embed_model: str = "qwen3-embedding:0.6b"
     db_path: str = "data/aifeed.db"
@@ -29,7 +28,6 @@ class Settings:
             gateway_key=env.get("GATEWAY_KEY", ""),
             triage_model=env.get("TRIAGE_MODEL", cls.triage_model),
             editor_model=env.get("EDITOR_MODEL", cls.editor_model),
-            editor_fallback=env.get("EDITOR_FALLBACK", cls.editor_fallback),
             embed_url=env.get("EMBED_URL", cls.embed_url),
             embed_model=env.get("EMBED_MODEL", cls.embed_model),
             db_path=env.get("DB_PATH", cls.db_path),
