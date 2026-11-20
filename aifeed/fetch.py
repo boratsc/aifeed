@@ -21,7 +21,7 @@ def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts:
         if published_at is None or published_at < since_ts:
             continue
         before = store.db.total_changes
-        store.upsert_raw(item["source_id"], item["url"], item["title"], published_at, item["content"], None)
+        store.upsert_raw(item["source_id"], item["url"], item["title"], published_at, item["content"], item.get("og_image"))
         inserted += store.db.total_changes - before
     return inserted, errors
 
@@ -133,6 +133,20 @@ def parse_cursor(data: bytes) -> list[dict]:
     return items
 
 
+def _extract_image(entry) -> str | None:
+    media = entry.get("media_thumbnail") or entry.get("media_content")
+    if isinstance(media, list) and media:
+        url = media[0].get("url")
+        if isinstance(url, str) and url.startswith(("http://", "https://")):
+            return url
+    enclosure = entry.get("enclosures")
+    if enclosure and enclosure[0].get("type", "").startswith("image/"):
+        url = enclosure[0].get("href")
+        if isinstance(url, str) and url.startswith(("http://", "https://")):
+            return url
+    return None
+
+
 def parse_feed(data: bytes) -> list[dict]:
     parsed = feedparser.parse(data)
     if not parsed.version:
@@ -145,10 +159,12 @@ def parse_feed(data: bytes) -> list[dict]:
             continue
         contents = entry.get("content", [])
         html = contents[0].get("value", "") if contents else entry.get("summary", "")
+        og_image = _extract_image(entry)
         items.append({
             "url": url,
             "title": entry.get("title", ""),
             "published_at": timegm(entry.published_parsed) if entry.get("published_parsed") else None,
             "content": BeautifulSoup(html, "html.parser").get_text(" ", strip=True),
+            "og_image": og_image,
         })
     return items

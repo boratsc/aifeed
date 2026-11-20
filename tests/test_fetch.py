@@ -146,6 +146,14 @@ def test_parse_feed_keeps_link_and_decodes_html():
     assert items[0]["url"] == "https://example.org/news/1"
     assert items[0]["title"] == "New model"
     assert items[0]["content"] == "A & B"
+    assert items[0]["og_image"] is None
+
+
+def test_parse_feed_extracts_media_thumbnail():
+    feed = b'''<rss xmlns:media="http://search.yahoo.com/mrss/" version="2.0"><channel><title>T</title>
+      <item><title>N</title><link>https://example.org/n</link>
+      <media:thumbnail url="https://example.org/img.jpg"/></item></channel></rss>'''
+    assert parse_feed(feed)[0]["og_image"] == "https://example.org/img.jpg"
 
 
 def test_feed_publication_date_is_utc_timestamp():

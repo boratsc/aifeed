@@ -4,6 +4,22 @@ from aifeed.render import slugify, render_feed, render_article, write_site
 from aifeed.store import Store
 
 
+def test_feed_shows_thumbnail_when_article_has_image():
+    from aifeed.store import Article
+    article = Article(1, "news", "Tytuł", "Lead", "Body", "modele", [], None, None, [],
+                      published_at=1.0, image="news.jpg")
+    html = render_feed([article])
+    assert 'src="/img/news.jpg"' in html
+
+
+def test_feed_omits_thumbnail_when_no_image():
+    from aifeed.store import Article
+    article = Article(1, "news", "Tytuł", "Lead", "Body", "modele", [], None, None, [],
+                      published_at=1.0)
+    html = render_feed([article])
+    assert '<img' not in html
+
+
 def test_write_site_paginates_older_news(tmp_path):
     store = Store(str(tmp_path / "db"))
     for i in range(31):
@@ -40,6 +56,15 @@ def test_write_site_creates_feed_and_article(tmp_path):
     assert 'class="active" href="/kat/modele.html"' in category_html
     assert 'class="active" href="/"' not in category_html
     assert "Tytuł" not in (output / "kat" / "cenniki.html").read_text()
+
+
+def test_article_renders_markdown_body_as_html():
+    from aifeed.store import Article
+    article = Article(1, "x", "Title", "Lead", "## Sekcja\n\nAkapit z **pogrubieniem**.", "modele", [], None, None, [], 1, None, 1)
+    html = render_article(article)
+    assert "<h2>Sekcja</h2>" in html
+    assert "<strong>pogrubieniem</strong>" in html
+    assert "## Sekcja" not in html
 
 
 def test_article_never_renders_javascript_source_link():

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS article (
     bench_json TEXT,
     promo TEXT,
     embedding_json TEXT,
+    image TEXT,
     published_at REAL,
     delta_of INTEGER REFERENCES article(id),
     updated_at REAL
@@ -85,9 +86,10 @@ class Article:
     bench: list | None
     promo: str | None
     embedding: list
-    published_at: float
-    delta_of: int | None
-    updated_at: float
+    published_at: float = 0.0
+    delta_of: int | None = None
+    updated_at: float = 0.0
+    image: str | None = None
 
 
 def cosine(a: list[float], b: list[float]) -> float:
@@ -111,6 +113,10 @@ class Store:
         columns = {row[1] for row in self.db.execute("PRAGMA table_info(raw)")}
         if "summary_pl" not in columns:
             self.db.execute("ALTER TABLE raw ADD COLUMN summary_pl TEXT")
+            self.db.commit()
+        article_cols = {row[1] for row in self.db.execute("PRAGMA table_info(article)")}
+        if "image" not in article_cols:
+            self.db.execute("ALTER TABLE article ADD COLUMN image TEXT")
             self.db.commit()
 
     def upsert_raw(self, source_id, url, title, published_at, content, og_image) -> int:
@@ -144,20 +150,20 @@ class Store:
         self.db.commit()
 
     def add_article(self, slug, title_pl, lead_pl, body_pl, category, sources, bench,
-                    promo, embedding, published_at, delta_of) -> int:
+                    promo, embedding, published_at, delta_of, image=None) -> int:
         cur = self.db.execute(
             "INSERT INTO article (slug, title_pl, lead_pl, body_pl, category, sources_json, "
-            "bench_json, promo, embedding_json, published_at, delta_of, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "bench_json, promo, embedding_json, image, published_at, delta_of, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (slug, title_pl, lead_pl, body_pl, category, json.dumps(sources, ensure_ascii=False),
              json.dumps(bench, ensure_ascii=False) if bench is not None else None,
-             promo, json.dumps(embedding), published_at, delta_of, published_at),
+             promo, json.dumps(embedding), image, published_at, delta_of, published_at),
         )
         self.db.commit()
         return cur.lastrowid
 
     def update_article(self, article_id: int, **fields):
-        allowed = {"title_pl", "lead_pl", "body_pl", "category", "promo", "delta_of"}
+        allowed = {"title_pl", "lead_pl", "body_pl", "category", "promo", "delta_of", "image"}
         json_fields = {"sources": "sources_json", "bench": "bench_json", "embedding": "embedding_json"}
         sets, vals = [], []
         for k, v in fields.items():
@@ -183,7 +189,8 @@ class Store:
             sources=json.loads(d["sources_json"] or "[]"),
             bench=json.loads(d["bench_json"]) if d["bench_json"] else None,
             promo=d["promo"], embedding=json.loads(d["embedding_json"] or "[]"),
-            published_at=d["published_at"], delta_of=d["delta_of"], updated_at=d["updated_at"],
+            image=d.get("image"), published_at=d["published_at"],
+            delta_of=d["delta_of"], updated_at=d["updated_at"],
         )
 
     def articles_since(self, ts: float) -> list[Article]:

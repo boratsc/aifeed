@@ -17,11 +17,14 @@ def run(settings, store):
     for ids in group_materials(settings, materials):
         group = [by_id[item_id] for item_id in ids]
         sources = [{"name": item["source_id"], "url": item["url"], "note": item["title"]} for item in group]
+        image = next((item["og_image"] for item in group if item.get("og_image")), None)
         try:
             article = edit_article(settings, group, sources)
         except ValueError as exc:
             logging.warning("Editorial validation failed for IDs %s: %s", ids, exc)
             continue
+        if image and isinstance(article, dict):
+            article["image"] = image
         decision = classify_candidate(settings, store, {"title": article["title_pl"], "summary_pl": article["lead_pl"]})
         if decision["verdict"] == "same":
             continue
@@ -49,7 +52,8 @@ def save_new_article(store, article, embedding, published_at, delta_of=None):
         slug = f"{base}-{suffix}"
         suffix += 1
     return store.add_article(slug, article["title_pl"], article["lead_pl"], article["body_pl"], article["category"],
-                             article["sources"], article.get("bench"), article.get("promo"), embedding, published_at, delta_of)
+                             article["sources"], article.get("bench"), article.get("promo"), embedding,
+                             published_at, delta_of, image=article.get("image"))
 
 
 def group_materials(settings, materials):

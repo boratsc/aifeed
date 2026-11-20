@@ -21,7 +21,7 @@ def run(settings, now=None):
         _, errors = ingest_feeds(client, store, {**RSS_SOURCES, **HTML_SOURCES, **API_SOURCES}, since)
     triage.run(settings, store)
     new_count = editor.run(settings, store)
-    write_site(store, settings.out_dir)
+    write_site(store, settings.out_dir, img_dir=settings.img_dir)
     if not errors:
         store.log_run(now, time.time(), new_count, [])
     return {"new": new_count, "errors": errors}
