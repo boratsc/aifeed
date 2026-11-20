@@ -42,18 +42,38 @@ def chat(settings: Settings, model: str, system: str, user: str,
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     last_err = None
     # reasoning models spend tokens on thinking before content: generous budget
-    payload = {"model": model, "messages": messages, "max_tokens": 8000}
-    with httpx.Client(timeout=180) as client:
+    # Streaming keeps long NIM generations alive (non-stream connections get EOF
+    # after ~340s of silent reasoning) and lets reasoning models budget tokens.
+    payload = {"model": model, "messages": messages, "max_tokens": 16000, "stream": True}
+    with httpx.Client(timeout=httpx.Timeout(900.0, connect=30.0)) as client:
         for attempt in range(max_retries + 1):
-            resp = client.post(
+            parts: list[str] = []
+            reasoning: list[str] = []
+            with client.stream(
+                "POST",
                 f"{settings.gateway_url}/chat/completions",
                 json=payload,
                 headers={"Authorization": f"Bearer {settings.gateway_key}"},
-            )
-            resp.raise_for_status()
-            message = resp.json()["choices"][0]["message"]
-            # Reasoning models (NIM/Nemotron/Mistral-T) return reasoning_content instead of content.
-            content = message.get("content") or message.get("reasoning_content") or ""
+            ) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                    for choice in chunk.get("choices", []):
+                        delta = choice.get("delta", {})
+                        if delta.get("content"):
+                            parts.append(delta["content"])
+                        if delta.get("reasoning_content"):
+                            reasoning.append(delta["reasoning_content"])
+            # Reasoning models (NIM/Nemotron/Mistral-T) may return only reasoning_content.
+            content = "".join(parts) or "".join(reasoning)
             if not json_mode:
                 return content
             try:

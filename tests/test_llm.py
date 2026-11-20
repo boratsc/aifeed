@@ -15,23 +15,27 @@ def make_settings():
     return Settings(gateway_url="https://gw.test/v1", gateway_key="k", embed_url="http://embed.test")
 
 
-def mock_transport(responses):
-    """responses: list of content strings, returned in order per call."""
+def _sse(payload_text: str) -> str:
+    """Buduje ciąg SSE dla pojedynczego delta(obiektu) w polu content."""
+    chunk = {"choices": [{"delta": {"content": payload_text}}]}
+    return "data: " + json.dumps(chunk) + "\n\ndata: [DONE]\n\n"
+
+
+def mock_stream(responses):
+    """responses: lista wiadomości; każda zwraca strumieniową odpowiedź SSE z content=response."""
     calls = {"n": 0}
 
     def handler(request):
         i = min(calls["n"], len(responses) - 1)
         calls["n"] += 1
-        return httpx.Response(200, json={
-            "choices": [{"message": {"content": responses[i]}}],
-            "model": "test",
-        })
+        body = _sse(responses[i])
+        return httpx.Response(200, content=body.encode(), headers={"content-type": "text/event-stream"})
 
     return httpx.MockTransport(handler), calls
 
 
 def test_chat_verifies_tls_by_default(monkeypatch):
-    transport, _ = mock_transport(['{"ok": true}'])
+    transport, _ = mock_stream(['{"ok": true}'])
     options = {}
 
     def client(**kwargs):
@@ -43,44 +47,59 @@ def test_chat_verifies_tls_by_default(monkeypatch):
     assert options.get("verify", True) is True
 
 
-def test_chat_reads_reasoning_content_when_content_absent(monkeypatch):
-    def handler(request):
-        return httpx.Response(200, json={"choices": [{"message": {"content": None, "reasoning_content": '{"a": 3}'}}], "model": "test"})
-    transport = httpx.MockTransport(handler)
-    monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=transport))
-    assert chat(make_settings(), "m", "sys", "usr") == {"a": 3}
-
-
 def test_chat_parses_clean_json(monkeypatch):
-    transport, _ = mock_transport(['{"a": 1}'])
+    transport, _ = mock_stream(['{"a": 1}'])
     monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=transport))
-    result = chat(make_settings(), "m", "sys", "usr")
-    assert result == {"a": 1}
+    assert chat(make_settings(), "m", "sys", "usr") == {"a": 1}
 
 
 def test_chat_strips_json_fence(monkeypatch):
-    transport, _ = mock_transport(['```json\n{"a": 2}\n```'])
+    transport, _ = mock_stream(['```json\n{"a": 2}\n```'])
     monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=transport))
     assert chat(make_settings(), "m", "sys", "usr") == {"a": 2}
 
 
+def test_chat_reads_reasoning_content(monkeypatch):
+    # delta zwraca tylko reasoning_content, bez content
+    def handler(request):
+        chunk = {"choices": [{"delta": {"reasoning_content": '{"a": 3}'}}]}
+        body = "data: " + json.dumps(chunk) + "\n\ndata: [DONE]\n\n"
+        return httpx.Response(200, content=body.encode(), headers={"content-type": "text/event-stream"})
+
+    monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=httpx.MockTransport(handler)))
+    assert chat(make_settings(), "m", "sys", "usr") == {"a": 3}
+
+
+def test_chat_accumulates_multiple_chunks(monkeypatch):
+    def handler(request):
+        parts = ['{"a":', '1}']
+        lines = []
+        for p in parts:
+            lines.append("data: " + json.dumps({"choices": [{"delta": {"content": p}}]}) + "\n\n")
+        lines.append("data: [DONE]\n\n")
+        return httpx.Response(200, content="".join(lines).encode(), headers={"content-type": "text/event-stream"})
+
+    monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=httpx.MockTransport(handler)))
+    assert chat(make_settings(), "m", "sys", "usr") == {"a": 1}
+
+
 def test_chat_retries_then_raises(monkeypatch):
-    transport, calls = mock_transport(["not json", "still not json", "garbage"])
+    transport, calls = mock_stream(["not json", "still not json", "garbage"])
     monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=transport))
     with pytest.raises(LLMError):
         chat(make_settings(), "m", "sys", "usr", max_retries=2)
-    assert calls["n"] == 3  # initial + 2 retries
+    assert calls["n"] == 3
 
 
 def test_chat_recovers_on_retry(monkeypatch):
-    transport, calls = mock_transport(["oops", '{"ok": true}'])
+    transport, calls = mock_stream(["oops", '{"ok": true}'])
     monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=transport))
     assert chat(make_settings(), "m", "sys", "usr") == {"ok": True}
     assert calls["n"] == 2
 
 
 def test_chat_text_mode(monkeypatch):
-    transport, _ = mock_transport(["plain text"])
+    transport, _ = mock_stream(["plain text"])
     monkeypatch.setattr(httpx, "Client", lambda **kw: _RealClient(transport=transport))
     assert chat(make_settings(), "m", "sys", "usr", json_mode=False) == "plain text"
 
