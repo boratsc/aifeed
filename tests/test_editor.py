@@ -99,6 +99,21 @@ def test_group_materials_keeps_complete_partition(monkeypatch):
     assert group_materials(Settings(), [{"id": 1}, {"id": 2}]) == [[1, 2]]
 
 
+def test_edit_article_falls_back_to_editor_fallback(monkeypatch):
+    import aifeed.editor as editor
+    calls = []
+    def fake_chat(settings, model, system, user):
+        calls.append(model)
+        if model == "primary":
+            raise Exception("402")
+        return {"title_pl": "T", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    monkeypatch.setattr(editor, "chat", fake_chat)
+    settings = Settings(editor_model="primary", editor_fallback="backup")
+    result = edit_article(settings, [{"title": "N"}], [{"name": "S", "url": "https://e.org"}])
+    assert calls == ["primary", "backup"]
+    assert result["title_pl"] == "T"
+
+
 def test_edit_article_keeps_all_input_sources(monkeypatch):
     import aifeed.editor as editor
     sources = [{"name": "A", "url": "https://a.example/1"}, {"name": "B", "url": "https://b.example/2"}]
