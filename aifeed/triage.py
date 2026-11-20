@@ -41,12 +41,28 @@ def classify_batch(settings, items):
     )
     payload = [{"raw_id": item.id, "title": item.title, "content": item.content[:5000]} for item in items]
     results = chat(settings, settings.triage_model, system, json.dumps(payload, ensure_ascii=False))
-    return validate_triage(results, {item.id for item in items})
+    source_by_id = {item.id: item.source_id for item in items}
+    return validate_triage(results, {item.id for item in items}, source_by_id)
 
 CATEGORIES = {"modele", "narzedzia", "open-source", "cenniki", "badania", "infrastruktura", "promocje"}
 
+# Typowe literówki/francuskie warianty słabych modeli (np. "modeles" zamiast "modele").
+_CATEGORY_ALIASES = {"modeles": "modele", "models": "modele", "narzedzia": "narzedzia"}
 
-def validate_triage(results: list[dict], expected_ids: set[int]) -> list[dict]:
+
+def resolve_category(category: str | None, source_id: str) -> str | None:
+    """Normalizuj literówki i przypisz promocje po źródle (nie po głosie modelu)."""
+    if category is None:
+        return None
+    cat = _CATEGORY_ALIASES.get(category, category)
+    from .sources import PROMO_SOURCES
+    if source_id in PROMO_SOURCES:
+        return "promocje"
+    return cat
+
+
+def validate_triage(results: list[dict], expected_ids: set[int], source_by_id: dict[int, str] | None = None) -> list[dict]:
+    source_by_id = source_by_id or {}
     if not isinstance(results, list):
         raise ValueError("triage response must be a list")
     seen = set()
@@ -62,9 +78,11 @@ def validate_triage(results: list[dict], expected_ids: set[int]) -> list[dict]:
             raise ValueError("relevance must be a boolean")
         if "category" not in item:
             raise ValueError("category is required")
-        if relevant and item["category"] not in CATEGORIES:
-            raise ValueError("unknown category")
-        if not relevant and item["category"] is not None:
+        if relevant:
+            item["category"] = resolve_category(item["category"], source_by_id.get(raw_id, ""))
+            if item["category"] not in CATEGORIES:
+                raise ValueError("unknown category")
+        elif item["category"] is not None:
             raise ValueError("irrelevant item category must be null")
         if not isinstance(item.get("summary_pl"), str):
             raise ValueError("summary must be text")

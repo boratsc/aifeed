@@ -88,3 +88,26 @@ def test_classify_batch_prompt_mentions_promocje(monkeypatch):
     triage.classify_batch(Settings(), [RawItem(1, "s", "https://x", "T", 1.0, "C", None)])
     # niepusty batch wysyła prompt z regułą promocji
     assert "promocje" in captured["system"]
+
+
+def test_validate_triage_normalizes_modeles_to_modele():
+    from aifeed.triage import validate_triage
+    out = validate_triage([{"raw_id": 1, "relevant": True, "category": "modeles", "summary_pl": "x"}], {1})
+    assert out[0]["category"] == "modele"
+
+
+def test_promo_sources_forced_to_promocje():
+    from aifeed.sources import PROMO_SOURCES
+    import aifeed.triage as triage
+    # imituj item z promocyjnego źródła
+    from aifeed.store import RawItem
+    r = RawItem(1, "aitkradar_deals", "https://x", "Promo", 1.0, "c", None)
+    cat = triage.resolve_category("cenniki", r.source_id)
+    assert cat == "promocje"
+
+
+def test_news_sources_keep_model_category():
+    import aifeed.triage as triage
+    from aifeed.store import RawItem
+    r = RawItem(1, "openai", "https://x", "News", 1.0, "c", None)
+    assert triage.resolve_category("modele", r.source_id) == "modele"
