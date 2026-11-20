@@ -65,6 +65,13 @@ CREATE TABLE IF NOT EXISTS tool_version (
     tag TEXT,
     fetched_at REAL
 );
+CREATE TABLE IF NOT EXISTS editor_job (
+    group_key TEXT PRIMARY KEY,
+    state TEXT NOT NULL,
+    started_at REAL,
+    updated_at REAL,
+    article_id INTEGER
+);
 """
 
 
@@ -110,6 +117,7 @@ def cosine(a: list[float], b: list[float]) -> float:
 
 class Store:
     def __init__(self, db_path: str):
+        self.db_path = db_path
         self.db = sqlite3.connect(db_path)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
@@ -145,6 +153,33 @@ class Store:
 
     def mark_processed(self, raw_id: int):
         self.db.execute("INSERT OR IGNORE INTO processed_raw (raw_id) VALUES (?)", (raw_id,))
+        self.db.commit()
+
+    def job(self, group_key: str):
+        return self.db.execute("SELECT * FROM editor_job WHERE group_key = ?", (group_key,)).fetchone()
+
+    def mark_running(self, group_key: str):
+        now = time.time()
+        self.db.execute(
+            "INSERT INTO editor_job (group_key, state, started_at, updated_at, article_id) "
+            "VALUES (?, 'running', ?, ?, NULL) ON CONFLICT(group_key) DO UPDATE SET "
+            "state = 'running', started_at = excluded.started_at, updated_at = excluded.updated_at, article_id = NULL",
+            (group_key, now, now),
+        )
+        self.db.commit()
+
+    def mark_done(self, group_key: str, article_id: int):
+        self.db.execute(
+            "UPDATE editor_job SET state = 'done', article_id = ?, updated_at = ? WHERE group_key = ?",
+            (article_id, time.time(), group_key),
+        )
+        self.db.commit()
+
+    def mark_failed(self, group_key: str):
+        self.db.execute(
+            "UPDATE editor_job SET state = 'failed', updated_at = ? WHERE group_key = ?",
+            (time.time(), group_key),
+        )
         self.db.commit()
 
     def set_tool_versions(self, versions: dict[str, str]):

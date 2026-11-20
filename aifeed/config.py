@@ -19,6 +19,9 @@ class Settings:
     dedup_days: int = 14
     dedup_threshold: float = 0.86
     backfill_days: int = 3
+    editor_concurrency: int = 4
+    editor_429_retries: int = 4
+    editor_stale_seconds: int = 1800
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -38,4 +41,7 @@ class Settings:
             dedup_days=int(env.get("DEDUP_DAYS", cls.dedup_days)),
             dedup_threshold=float(env.get("DEDUP_THRESHOLD", cls.dedup_threshold)),
             backfill_days=int(env.get("BACKFILL_DAYS", cls.backfill_days)),
+            editor_concurrency=int(env.get("EDITOR_CONCURRENCY", cls.editor_concurrency)),
+            editor_429_retries=int(env.get("EDITOR_429_RETRIES", cls.editor_429_retries)),
+            editor_stale_seconds=int(env.get("EDITOR_STALE_SECONDS", cls.editor_stale_seconds)),
         )

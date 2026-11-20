@@ -109,3 +109,29 @@ def test_cosine():
     assert cosine([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
     assert cosine([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)
     assert cosine([0.0, 0.0], [1.0, 0.0]) == 0.0
+
+def test_editor_job_lifecycle(tmp_path):
+    store = Store(str(tmp_path / "db"))
+    assert store.db_path == str(tmp_path / "db")
+    assert store.job("k1") is None
+    store.mark_running("k1")
+    assert store.job("k1")["state"] == "running"
+    assert store.job("k1")["started_at"] > 0
+    store.mark_done("k1", 7)
+    assert store.job("k1")["state"] == "done"
+    assert store.job("k1")["article_id"] == 7
+    store.mark_failed("k1")
+    assert store.job("k1")["state"] == "failed"
+    # mark_running resetuje article_id i started_at
+    store.mark_running("k1")
+    assert store.job("k1")["article_id"] is None
+
+
+def test_settings_editor_defaults(monkeypatch):
+    from aifeed.config import Settings
+    for var in ("EDITOR_CONCURRENCY", "EDITOR_429_RETRIES", "EDITOR_STALE_SECONDS"):
+        monkeypatch.delenv(var, raising=False)
+    s = Settings.from_env()
+    assert (s.editor_concurrency, s.editor_429_retries, s.editor_stale_seconds) == (4, 4, 1800)
+    monkeypatch.setenv("EDITOR_CONCURRENCY", "2")
+    assert Settings.from_env().editor_concurrency == 2
