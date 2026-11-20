@@ -29,10 +29,6 @@ RSS_SOURCES = {
     "baoyu": "https://baoyu.io/feed.xml",
     "qwen_code": "https://github.com/QwenLM/qwen-code/releases.atom",
     "deepseek_harness": "https://github.com/deepseek-ai/deepseek-harness/releases.atom",
-    "aitkradar_deals": "https://aitkradar.cn/deals.xml",
-    "aitkradar_changes": "https://aitkradar.cn/changes.xml",
-    "tokentab": "https://www.tokentab.cn/feed.xml",
-    "ai_deals_aggregator": "https://buguoshixc.github.io/ai-deals-aggregator/feed.xml",
 }
 
 HTML_SOURCES = {
@@ -43,4 +39,13 @@ HTML_SOURCES = {
 API_SOURCES = {
     "hf_qwen": "https://huggingface.co/api/models?author=Qwen&sort=createdAt&direction=-1&limit=100",
     "hf_zhipu": "https://huggingface.co/api/models?author=zai-org&sort=createdAt&direction=-1&limit=100",
+}
+
+# Katalogi promocji: feed trzyma "aktywne oferty" (pubDate = start oferty,
+# nie data aktualizacji), więc nie filtrujemy ich po dacie publikacji.
+PROMO_SOURCES = {
+    "aitkradar_deals": "https://aitkradar.cn/deals.xml",
+    "aitkradar_changes": "https://aitkradar.cn/changes.xml",
+    "tokentab": "https://www.tokentab.cn/feed.xml",
+    "ai_deals_aggregator": "https://buguoshixc.github.io/ai-deals-aggregator/feed.xml",
 }

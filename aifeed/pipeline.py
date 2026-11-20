@@ -7,7 +7,7 @@ import httpx
 from . import editor, triage
 from .fetch import ingest_feeds
 from .render import write_site
-from .sources import RSS_SOURCES, HTML_SOURCES, API_SOURCES
+from .sources import RSS_SOURCES, HTML_SOURCES, API_SOURCES, PROMO_SOURCES
 from .store import Store
 from .tools import fetch_tool_versions
 
@@ -20,6 +20,8 @@ def run(settings, now=None):
     since = last if last is not None else now - settings.backfill_days * 86400
     with httpx.Client() as client:
         _, errors = ingest_feeds(client, store, {**RSS_SOURCES, **HTML_SOURCES, **API_SOURCES}, since)
+        # Promocje to katalogi aktywnych ofert (pubDate = start), nie filtruj po dacie.
+        ingest_feeds(client, store, PROMO_SOURCES, 0)
         store.set_tool_versions(fetch_tool_versions(client))
     triage.run(settings, store)
     new_count = editor.run(settings, store)
