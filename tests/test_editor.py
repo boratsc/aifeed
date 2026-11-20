@@ -367,3 +367,16 @@ def test_parallel_workers_write_to_one_db(tmp_path, monkeypatch):
     assert store.relevant_candidates() == []
     states = [r["state"] for r in store.db.execute("SELECT state FROM editor_job")]
     assert states == ["done"] * 6
+
+
+def test_editor_prompt_preserves_figure_markdown(monkeypatch):
+    import aifeed.editor as editor
+    captured = {}
+    def fake_chat(settings, model, system, user):
+        captured["system"] = system
+        return {"title_pl": "T", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    monkeypatch.setattr(editor, "chat", fake_chat)
+    editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
+    assert "Obrazy" in captured["system"]
+    assert "![](url)" in captured["system"]
+    assert "nie pomijaj" in captured["system"]

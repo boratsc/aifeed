@@ -233,3 +233,41 @@ def test_ingest_keeps_rss_content_when_present():
         ingest_feeds(client, store, {"src": "https://example.org/feed"}, 0)
     assert calls == ["https://example.org/feed"]  # bez dodatkowego fetcha strony
     assert store.db.execute("SELECT content FROM raw").fetchone()["content"] == "Juz jest tresc z RSS."
+
+
+def test_extract_article_images_skips_avatars():
+    from aifeed.fetch import extract_article_images
+    html = b"""<main><div class='prose'>
+    <img src='https://x.dev/avatars/a.png' alt='author avatar'>
+    <img src='https://cdn.example.com/fig1.png' alt='Wyniki Qwen na 442 zadaniach'>
+    <img src='javascript:alert(1)' alt='zly'>
+    </div></main>"""
+    assert extract_article_images(html) == ["![Wyniki Qwen na 442 zadaniach](https://cdn.example.com/fig1.png)"]
+
+
+def test_extract_article_images_empty_without_figures():
+    from aifeed.fetch import extract_article_images
+    assert extract_article_images(b"<main><p>sam tekst</p></main>") == []
+
+
+def test_ingest_appends_figure_markdown_to_backfilled_content():
+    import httpx
+    from aifeed.fetch import ingest_feeds
+    from aifeed.store import Store
+    import tempfile, os
+    store = Store(os.path.join(tempfile.mkdtemp(), "db"))
+    feed = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>
+    <item><title>T</title><link>https://example.org/post</link>
+    <pubDate>Fri, 20 Nov 2026 00:00:00 GMT</pubDate></item></channel></rss>"""
+    page = b"""<html><main><div class='prose'><p>Tekst publikacji.</p>
+    <img src='https://cdn.example.com/fig.png' alt='Wykres wynikow'>
+    <img src='https://x.dev/avatars/a.png' alt='autor'></div></main></html>"""
+    def handler(request):
+        if str(request.url).endswith("/feed"):
+            return httpx.Response(200, content=feed)
+        return httpx.Response(200, content=page)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        ingest_feeds(client, store, {"src": "https://example.org/feed"}, 0)
+    content = store.db.execute("SELECT content FROM raw").fetchone()["content"]
+    assert "Tekst publikacji." in content
+    assert "![Wykres wynikow](https://cdn.example.com/fig.png)" in content

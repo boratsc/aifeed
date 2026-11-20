@@ -150,6 +150,7 @@ def edit_article(settings, materials, sources):
         "Zachowaj wszystkie fakty, liczby, wyniki benchmarków, nazwy, wersje, cytaty i strukturę sekcji źródła. "
         "Długość artykułu ma odpowiadać długości źródła: obszerna publikacja wymaga obszernego artykułu, krótki news krótkiego. "
         "Używaj nagłówków Markdown (##) dla sekcji i tabel Markdown dla danych tabelarycznych. "
+        "Obrazy figur i wykresów dostarczone jako Markdown ![](url) zachowaj w odpowiednich sekcjach tekstu, nie pomijaj ich. "
         "Tytuł ma wprost opisywać fakt. Unikaj metafor i zwrotów takich jak 'wchodzi do gry', 'rewolucja' i 'zmienia zasady gry'. "
         "Nie dodawaj wyników benchmarków ani cen, których nie ma w materiałach. "
         "Nie wspominaj o ich braku, po prostu ich nie wymieniaj. "

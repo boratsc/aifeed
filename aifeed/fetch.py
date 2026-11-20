@@ -23,6 +23,32 @@ def extract_article_text(data: bytes) -> str:
     return ""
 
 
+def extract_article_images(data: bytes) -> list[str]:
+    """Figury/wykresy jako Markdown ![](url); pomija awatary i nie-bezpieczne URL."""
+    soup = BeautifulSoup(data, "html.parser")
+    out = []
+    for selector in (".prose", "article", "main"):
+        el = soup.select_one(selector)
+        if el:
+            break
+    if el is None:
+        return out
+    for im in el.select("img"):
+        src = (im.get("src") or "").strip()
+        alt = (im.get("alt") or "").strip()
+        if not src:
+            continue
+        low = src.lower()
+        if "avatar" in low or "/avatars/" in low:
+            continue
+        if not src.startswith(("http://", "https://")):
+            continue
+        if not alt:
+            continue
+        out.append(f"![{alt}]({src})")
+    return out
+
+
 def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts: float) -> tuple[int, dict[str, str]]:
     items, errors = fetch_sources(client, sources)
     inserted = 0
@@ -36,7 +62,9 @@ def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts:
             try:
                 resp = client.get(item["url"], timeout=20, follow_redirects=True)
                 resp.raise_for_status()
-                item["content"] = extract_article_text(resp.content)
+                text = extract_article_text(resp.content)
+                figures = extract_article_images(resp.content)
+                item["content"] = text + ("\n\n" + "\n\n".join(figures) if figures else "")
             except httpx.HTTPError:
                 pass
         before = store.db.total_changes
