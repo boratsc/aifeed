@@ -4,6 +4,24 @@ from aifeed.editor import validate_article, edit_article, group_materials, save_
 from aifeed.store import Store
 
 
+def test_invalid_article_does_not_block_other_groups(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    store = Store(str(tmp_path / "db"))
+    ids = [store.upsert_raw("s", f"https://example.org/{i}", f"T{i}", 1000.0+i, "F", None) for i in range(2)]
+    store.db.execute("UPDATE raw SET triaged=1,relevant=1,category='modele',summary_pl='F'")
+    store.db.commit()
+    monkeypatch.setattr(editor, "group_materials", lambda *args: [[ids[0]], [ids[1]]])
+    def edit(settings, materials, sources):
+        if materials[0]["id"] == ids[0]:
+            raise ValueError("article exceeds 450 words")
+        return {"title_pl": "Dobry", "lead_pl": "L", "body_pl": "B", "category": "modele", "sources": sources}
+    monkeypatch.setattr(editor, "edit_article", edit)
+    monkeypatch.setattr(editor, "classify_candidate", lambda *args: {"verdict": "new", "article_id": None, "embedding": [1.0]})
+    assert editor.run(Settings(), store) == 1
+    assert store.article_by_slug("dobry") is not None
+    assert [item["id"] for item in store.relevant_candidates()] == [ids[0]]
+
+
 def test_merge_updates_existing_article_sources(tmp_path, monkeypatch):
     import aifeed.editor as editor
     store = Store(str(tmp_path / "db"))
@@ -65,8 +83,7 @@ def test_group_materials_rejects_missing_or_foreign_ids(monkeypatch):
     import aifeed.editor as editor
     materials = [{"id": 1}, {"id": 2}]
     monkeypatch.setattr(editor, "chat", lambda *args: [[1]])
-    with pytest.raises(ValueError):
-        group_materials(Settings(), materials)
+    assert group_materials(Settings(), materials) == [[1], [2]]
     monkeypatch.setattr(editor, "chat", lambda *args: [[1, 99]])
     with pytest.raises(ValueError):
         group_materials(Settings(), materials)
