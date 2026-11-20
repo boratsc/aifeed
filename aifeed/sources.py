@@ -25,9 +25,14 @@ RSS_SOURCES = {
     "leiphone": "https://www.leiphone.com/feed",
     "qbitai": "https://www.qbitai.com/feed",
     "oschina": "https://www.oschina.net/news/rss",
+    "aichina_news": "https://www.aichina.news/rss.xml",
+    "baoyu": "https://baoyu.io/feed.xml",
+    "qwen_code": "https://github.com/QwenLM/qwen-code/releases.atom",
+    "deepseek_harness": "https://github.com/deepseek-ai/deepseek-harness/releases.atom",
     "aitkradar_deals": "https://aitkradar.cn/deals.xml",
     "aitkradar_changes": "https://aitkradar.cn/changes.xml",
     "tokentab": "https://www.tokentab.cn/feed.xml",
+    "ai_deals_aggregator": "https://buguoshixc.github.io/ai-deals-aggregator/feed.xml",
 }
 
 HTML_SOURCES = {

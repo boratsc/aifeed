@@ -155,3 +155,16 @@ def test_article_images_constrained_and_zoomable():
     assert "max-width:100%" in html
     assert "lightbox" in html.lower()
     assert 'cursor:zoom-in' in html
+
+
+def test_promocje_excluded_from_main_feed_own_category_page(tmp_path):
+    store = Store(str(tmp_path / "db"))
+    store.add_article("promo", "Promocja Qwen", "Rabat", "Treść", "promocje", [{"name": "S", "url": "https://example.org"}], None, None, [], 1.0, None)
+    store.add_article("news", "Zwykły news", "Lead", "Treść", "modele", [{"name": "S", "url": "https://example.org"}], None, None, [], 2.0, None)
+    output = tmp_path / "site"
+    write_site(store, str(output))
+    # promocje nie śmiecą głównego feedu
+    assert "Promocja Qwen" not in (output / "index.html").read_text()
+    # ale mają własną stronę kategorii
+    assert "Promocja Qwen" in (output / "kat" / "promocje.html").read_text()
+    assert "promocje" in (output / "index.html").read_text()  # menu ma link do promocji

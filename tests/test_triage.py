@@ -71,3 +71,20 @@ def test_validate_triage_rejects_unknown_category():
 def test_validate_triage_accepts_irrelevant_without_category():
     result = [{"raw_id": 1, "relevant": False, "category": None, "summary_pl": ""}]
     assert validate_triage(result, {1}) == result
+
+
+def test_categories_includes_promocje():
+    from aifeed.triage import CATEGORIES
+    assert "promocje" in CATEGORIES
+
+
+def test_classify_batch_prompt_mentions_promocje(monkeypatch):
+    import aifeed.triage as triage
+    captured = {}
+    def fake_chat(settings, model, system, user):
+        captured["system"] = system
+        return [{"raw_id": 1, "relevant": False, "category": None, "summary_pl": ""}]
+    monkeypatch.setattr(triage, "chat", fake_chat)
+    triage.classify_batch(Settings(), [RawItem(1, "s", "https://x", "T", 1.0, "C", None)])
+    # niepusty batch wysyła prompt z regułą promocji
+    assert "promocje" in captured["system"]
