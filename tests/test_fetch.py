@@ -291,3 +291,15 @@ def test_ingest_backfills_trivial_content_too():
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         ingest_feeds(client, store, {"src": "https://example.org/feed"}, 0)
     assert store.db.execute("SELECT content FROM raw").fetchone()["content"] == "Pelna tresc artykulu z linku, ktora jest dostatecznie dluga by nie byc zajawka."
+
+
+def test_fetch_feed_sends_user_agent():
+    import httpx
+    from aifeed.fetch import fetch_feed
+    captured = {}
+    def handler(request):
+        captured["ua"] = request.headers.get("user-agent")
+        return httpx.Response(200, content=b"<?xml version=\"1.0\"?><rss version=\"2.0\"><channel><title>f</title><item><title>T</title><link>https://x.example/</link><pubDate>Fri, 20 Nov 2026 00:00:00 GMT</pubDate><description>d</description></item></channel></rss>")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        fetch_feed(client, "https://x.example/feed")
+    assert captured["ua"] and "Mozilla" in captured["ua"]

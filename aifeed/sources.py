@@ -23,6 +23,11 @@ RSS_SOURCES = {
     "purepc": "https://www.purepc.pl/rss.xml",
     "qwen_blog": "https://qwenlm.github.io/blog/index.xml",
     "leiphone": "https://www.leiphone.com/feed",
+    "qbitai": "https://www.qbitai.com/feed",
+    "oschina": "https://www.oschina.net/news/rss",
+    "aitkradar_deals": "https://aitkradar.cn/deals.xml",
+    "aitkradar_changes": "https://aitkradar.cn/changes.xml",
+    "tokentab": "https://www.tokentab.cn/feed.xml",
 }
 
 HTML_SOURCES = {

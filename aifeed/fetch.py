@@ -8,6 +8,9 @@ import feedparser
 import httpx
 from bs4 import BeautifulSoup
 
+# Część chińskich feedów (QbitAI) zwraca 403 bez nagłówka przeglądarki.
+_UA = "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0"
+
 
 class FetchError(Exception):
     """A source could not be interpreted as a feed."""
@@ -106,7 +109,7 @@ def fetch_sources(client: httpx.Client, sources: dict[str, str]) -> tuple[list[d
 
 def fetch_feed(client: httpx.Client, url: str) -> list[dict]:
     try:
-        response = client.get(url, timeout=20, follow_redirects=True)
+        response = client.get(url, timeout=20, follow_redirects=True, headers={"User-Agent": _UA})
         response.raise_for_status()
     except httpx.HTTPError as exc:
         raise FetchError(f"failed to fetch feed: {exc}") from exc
