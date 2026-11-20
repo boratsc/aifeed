@@ -27,20 +27,19 @@ def _is_stable(tag: str) -> bool:
 
 
 def fetch_tool_versions(client) -> dict[str, str]:
-    """Zwraca {repo: tag}. Dla repo oznaczonych pre=True bierze najnowszy stabilny."""
+    """Zwraca {repo: tag}. Lista releases (najnowsze pierwsze), nie /latest:
+    flaga 'latest' bywa ustawiona ręcznie na stary tag (OpenCode v1.19.6 vs v2.3.2)."""
     versions = {}
     for tool in TOOLS:
-        url = f"https://api.github.com/repos/{tool['repo']}/releases/latest"
+        url = f"https://api.github.com/repos/{tool['repo']}/releases?per_page=10"
         headers = {"User-Agent": "aifeed/0.1"}
-        if tool.get("pre"):
-            # Node: przeszukaj ostatnie 5, wybierz pierwszy stabilny
-            url = f"https://api.github.com/repos/{tool['repo']}/releases?per_page=5"
         try:
             resp = client.get(url, timeout=15, headers=headers)
             resp.raise_for_status()
             data = resp.json()
-            tags = [data["tag_name"]] if isinstance(data, dict) and "tag_name" in data else [d["tag_name"] for d in data]
-            tag = next((t for t in tags if _is_stable(t)), None)
+            releases = data if isinstance(data, list) else [data]
+            tag = next((r["tag_name"] for r in releases
+                        if not r.get("prerelease") and not r.get("draft") and _is_stable(r.get("tag_name", ""))), None)
             if tag:
                 versions[tool["repo"]] = tag
         except Exception:
