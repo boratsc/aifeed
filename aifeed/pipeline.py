@@ -22,5 +22,6 @@ def run(settings, now=None):
     triage.run(settings, store)
     new_count = editor.run(settings, store)
     write_site(store, settings.out_dir)
-    store.log_run(now, time.time(), new_count, list(errors))
+    if not errors:
+        store.log_run(now, time.time(), new_count, [])
     return {"new": new_count, "errors": errors}
