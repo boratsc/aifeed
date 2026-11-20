@@ -1,4 +1,139 @@
-from aifeed.fetch import parse_feed
+import pytest
+
+import httpx
+
+from aifeed.fetch import FetchError, fetch_feed, fetch_sources, ingest_feeds, parse_cursor, parse_deepseek, parse_feed, parse_hf_models
+
+
+def test_hf_source_is_ingested(tmp_path):
+    from aifeed.store import Store
+    models = [{"id": "Qwen/Qwen-Test", "createdAt": "2026-11-20T06:30:00Z"}]
+    store = Store(str(tmp_path / "db"))
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=models))) as client:
+        count, errors = ingest_feeds(client, store, {"hf_qwen": "https://huggingface.co/api/models?author=Qwen"}, 1795156200)
+    assert count == 1
+    assert errors == {}
+    assert store.untriaged()[0].title == "Qwen/Qwen-Test"
+
+
+def test_hf_models_produces_dated_first_party_model_cards():
+    models = [{"id": "Qwen/Qwen-Test", "createdAt": "2026-11-20T06:30:00.000Z"}]
+    item = parse_hf_models(models)[0]
+    assert item["url"] == "https://huggingface.co/Qwen/Qwen-Test"
+    assert item["published_at"] == 1795156200
+    assert item["title"] == "Qwen/Qwen-Test"
+
+
+def test_hf_models_skips_invalid_records():
+    assert parse_hf_models([None, "bad", {"id": "../bad", "createdAt": "no-date"}]) == []
+
+
+def test_deepseek_changelog_extracts_date_title_and_content():
+    html = b'''<main><article><h2 id="nov">Date: 2026-11-20</h2>
+    <h3>API update</h3><p>New features available.</p>
+    <h2 id="oct">Date: 2026-10-01</h2><h3>Older update</h3><p>Old.</p></article></main>'''
+    items = parse_deepseek(html)
+    assert len(items) == 2
+    assert items[0]["title"] == "API update"
+    assert items[0]["url"] == "https://api-docs.deepseek.com/updates#nov"
+    assert items[0]["published_at"] == 1795132800
+    assert "New features available." in items[0]["content"]
+
+
+def test_deepseek_source_is_ingested(tmp_path):
+    from aifeed.store import Store
+    html = b'''<main><article><h2 id="nov">Date: 2026-11-20</h2><h3>API update</h3><p>New.</p></article></main>'''
+    store = Store(str(tmp_path / "db"))
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, content=html))) as client:
+        count, errors = ingest_feeds(client, store, {"deepseek_updates": "https://api-docs.deepseek.com/updates"}, 1795132800)
+    assert count == 1
+    assert errors == {}
+    assert store.untriaged()[0].title == "API update"
+
+
+def test_deepseek_changed_page_is_error():
+    with pytest.raises(FetchError):
+        parse_deepseek(b"<html>maintenance</html>")
+
+
+def test_parse_cursor_reads_dated_articles():
+    html = b'''<article><a href="/changelog/feature"><time datetime="2026-11-20T06:30:00Z">Nov 20</time></a>
+    <h2><a href="/changelog/feature">New feature</a></h2><p>Details</p></article>'''
+    item = parse_cursor(html)[0]
+    assert item["url"] == "https://cursor.com/changelog/feature"
+    assert item["title"] == "New feature"
+    assert item["published_at"] == 1795156200
+
+
+def test_cursor_source_is_fetched_and_ingested(tmp_path):
+    html = b'''<article><time datetime="2026-11-20T06:30:00Z"></time>
+    <h1><a href="/changelog/feature">New feature</a></h1></article>'''
+    store = Store(str(tmp_path / "db"))
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, content=html))) as client:
+        count, errors = ingest_feeds(client, store, {"cursor_changelog": "https://cursor.com/changelog"}, 1795156200)
+    assert count == 1
+    assert errors == {}
+    assert store.untriaged()[0].title == "New feature"
+
+
+def test_parse_cursor_reports_changed_markup():
+    with pytest.raises(FetchError):
+        parse_cursor(b"<html><body>Changed</body></html>")
+from aifeed.store import Store
+
+
+def test_ingest_feeds_respects_cutoff_and_deduplicates(tmp_path):
+    feed = b'''<rss version="2.0"><channel><title>T</title>
+      <item><title>Fresh</title><link>https://example.org/fresh</link><pubDate>Fri, 20 Nov 2026 07:30:00 +0100</pubDate></item>
+      <item><title>Old</title><link>https://example.org/old</link><pubDate>Mon, 16 Nov 2026 07:30:00 +0100</pubDate></item>
+      <item><title>No date</title><link>https://example.org/unknown</link></item>
+    </channel></rss>'''
+    store = Store(str(tmp_path / "feed.db"))
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, content=feed))) as client:
+        sources = {"source": "https://example.org/feed"}
+        assert ingest_feeds(client, store, sources, since_ts=1795156200) == (1, {})
+        assert ingest_feeds(client, store, sources, since_ts=1795156200) == (0, {})
+    assert [item.title for item in store.untriaged()] == ["Fresh"]
+
+
+def test_fetch_sources_continues_after_failure():
+    feed = b'<rss version="2.0"><channel><title>T</title><item><title>N</title><link>https://example.org/n</link></item></channel></rss>'
+    def handler(request):
+        return httpx.Response(404) if request.url.path == "/bad" else httpx.Response(200, content=feed)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        items, errors = fetch_sources(client, {"broken": "https://example.org/bad", "good": "https://example.org/feed"})
+    assert items[0]["source_id"] == "good"
+    assert "broken" in errors
+    assert len(items) == 1
+
+
+def test_fetch_feed_returns_parsed_items():
+    feed = b'<rss version="2.0"><channel><title>T</title><item><title>N</title><link>https://example.org/n</link></item></channel></rss>'
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, content=feed))) as client:
+        assert fetch_feed(client, "https://example.org/rss")[0]["title"] == "N"
+
+
+def test_fetch_feed_reports_http_error():
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(404))) as client:
+        with pytest.raises(FetchError):
+            fetch_feed(client, "https://example.org/rss")
+
+
+def test_fetch_feed_reports_timeout():
+    def timeout(request):
+        raise httpx.ReadTimeout("timed out", request=request)
+    with httpx.Client(transport=httpx.MockTransport(timeout)) as client:
+        with pytest.raises(FetchError):
+            fetch_feed(client, "https://example.org/rss")
+
+
+def test_parse_feed_reports_html_error_page():
+    with pytest.raises(FetchError):
+        parse_feed(b"<html><body>Access denied</body></html>")
+
+
+def test_parse_feed_allows_valid_empty_feed():
+    assert parse_feed(b'<rss version="2.0"><channel><title>Empty</title></channel></rss>') == []
 
 
 def test_parse_feed_keeps_link_and_decodes_html():
@@ -11,6 +146,21 @@ def test_parse_feed_keeps_link_and_decodes_html():
     assert items[0]["url"] == "https://example.org/news/1"
     assert items[0]["title"] == "New model"
     assert items[0]["content"] == "A & B"
+
+
+def test_feed_publication_date_is_utc_timestamp():
+    feed = b'''<rss version="2.0"><channel><title>Test</title>
+      <item><title>News</title><link>https://example.org/1</link>
+      <pubDate>Fri, 20 Nov 2026 07:30:00 +0100</pubDate></item>
+    </channel></rss>'''
+    assert parse_feed(feed)[0]["published_at"] == 1795156200
+
+
+def test_feed_without_publication_date_has_no_timestamp():
+    feed = b'''<rss version="2.0"><channel><title>Test</title>
+      <item><title>News</title><link>https://example.org/1</link></item>
+    </channel></rss>'''
+    assert parse_feed(feed)[0]["published_at"] is None
 
 
 def test_parse_feed_rejects_items_without_http_link():

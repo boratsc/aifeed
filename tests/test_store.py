@@ -26,6 +26,17 @@ def test_untriaged_and_mark_triaged(store):
     assert store.untriaged() == []
 
 
+def test_relevant_candidates_keep_triage_summary(store):
+    rid = store.upsert_raw("s", "https://x.com/1", "T", 1.0, "c", None)
+    store.db.execute("UPDATE raw SET triaged = 1, relevant = 1, category = ?, summary_pl = ? WHERE id = ?", ("modele", "Podsumowanie.", rid))
+    store.db.commit()
+    candidates = store.relevant_candidates()
+    assert candidates[0]["id"] == rid
+    assert candidates[0]["summary_pl"] == "Podsumowanie."
+    store.mark_processed(rid)
+    assert store.relevant_candidates() == []
+
+
 def test_article_roundtrip_with_json_fields(store):
     sources = [{"name": "z.ai", "url": "https://z.ai/news", "note": "release"}]
     bench = [{"name": "SWE-bench", "value": "71,4%", "note": "vs K3.1"}]

@@ -107,6 +107,11 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        self.db.execute("CREATE TABLE IF NOT EXISTS processed_raw (raw_id INTEGER PRIMARY KEY REFERENCES raw(id))")
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(raw)")}
+        if "summary_pl" not in columns:
+            self.db.execute("ALTER TABLE raw ADD COLUMN summary_pl TEXT")
+            self.db.commit()
 
     def upsert_raw(self, source_id, url, title, published_at, content, og_image) -> int:
         cur = self.db.execute(
@@ -122,6 +127,14 @@ class Store:
     def untriaged(self) -> list[RawItem]:
         rows = self.db.execute("SELECT * FROM raw WHERE triaged = 0 ORDER BY published_at").fetchall()
         return [RawItem(**{k: r[k] for k in RawItem.__dataclass_fields__}) for r in rows]
+
+    def relevant_candidates(self) -> list[dict]:
+        rows = self.db.execute("SELECT * FROM raw WHERE triaged = 1 AND relevant = 1 AND id NOT IN (SELECT raw_id FROM processed_raw) ORDER BY published_at DESC").fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_processed(self, raw_id: int):
+        self.db.execute("INSERT OR IGNORE INTO processed_raw (raw_id) VALUES (?)", (raw_id,))
+        self.db.commit()
 
     def mark_triaged(self, raw_id: int, relevant: bool, category: str | None):
         self.db.execute(
@@ -182,6 +195,12 @@ class Store:
     def article_by_slug(self, slug: str) -> Article | None:
         r = self.db.execute("SELECT * FROM article WHERE slug = ?", (slug,)).fetchone()
         return self._row_to_article(r) if r else None
+
+    def article_by_id(self, article_id: int) -> Article:
+        row = self.db.execute("SELECT * FROM article WHERE id = ?", (article_id,)).fetchone()
+        if row is None:
+            raise ValueError("article does not exist")
+        return self._row_to_article(row)
 
     def all_embeddings(self, days: int) -> list[tuple[int, str, list]]:
         cutoff = time.time() - days * 86400

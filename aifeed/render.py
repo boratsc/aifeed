@@ -1,0 +1,60 @@
+"""Static site rendering helpers."""
+import re
+import unicodedata
+from pathlib import Path
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+from jinja2 import Environment, select_autoescape
+
+
+def render_feed(articles, summary=None):
+    env = Environment(autoescape=select_autoescape(["html"]))
+    env.filters["time"] = lambda ts: datetime.fromtimestamp(ts, ZoneInfo("Europe/Warsaw")).strftime("%H:%M")
+    env.filters["iso"] = lambda ts: datetime.fromtimestamp(ts, timezone.utc).isoformat()
+    return env.from_string('''<!doctype html><html lang="pl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>ai:///feed</title>
+<style>:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#0d060b;color:#fff;font:14px/1.5 "IBM Plex Sans",system-ui,sans-serif}a{color:#ff488b;text-decoration:none}a:hover{text-decoration:underline}a:focus-visible{outline:2px solid #ff488b;outline-offset:3px}.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}.top{height:64px;border-bottom:1px solid #33202d;display:flex;align-items:center;padding:0 20px;gap:12px}.brand{color:#fff;font-size:17px}.cursor{width:8px;height:14px;background:#ff488b}.tagline{color:#9a8f97;font-size:13px}.top .rss{margin-left:auto;color:#9a8f97}.feed-layout{display:grid;grid-template-columns:minmax(0,1fr);min-width:0}.feed-layout>*{min-width:0}.news-item h2,.news-item p{overflow-wrap:anywhere}.categories{padding:24px 20px}.categories h2,.rail h2{font:11px "IBM Plex Mono",monospace;color:#9a8f97}.categories nav{display:flex;gap:16px;overflow:auto}.categories a{white-space:nowrap;color:#9a8f97;font:13px "IBM Plex Mono",monospace;padding:6px 0}.categories a.active{color:#fff}.feed-list{padding:0 20px 32px}.feed-list h1{font-size:20px;font-weight:500;margin:20px 0}.news-item{padding:20px 0;border-bottom:1px solid #33202d}.news-item h2{font-size:17px;font-weight:500;margin:0 0 8px}.news-item h2 a{color:#fff}.news-item p{color:#9a8f97;font-size:13.5px;margin:0 0 10px}.meta{font:11px "IBM Plex Mono",monospace;color:#9a8f97}.rail{padding:24px 20px;color:#9a8f97}.rail p{color:#fff;font-size:13px}.footer{padding:20px;border-top:1px solid #33202d;color:#9a8f97;font:12px "IBM Plex Mono",monospace;display:flex;justify-content:space-between;gap:16px}@media(min-width:1000px){.top{padding:0 40px}.feed-layout{grid-template-columns:260px minmax(0,780px) minmax(240px,1fr);max-width:1440px;margin:auto}.categories{border-right:1px solid #33202d;padding:36px 30px}.categories nav{display:block}.categories a{display:block;padding:8px 10px;margin-left:-10px}.categories a.active{background:#1b0e17;border:1px solid #33202d}.feed-list{padding:36px 0 32px}.rail{border-left:1px solid #33202d;padding:36px 30px}.footer{padding:20px 40px}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}</style>
+</head><body><header class="top"><a class="brand mono" href="/">ai:///feed</a><span class="cursor" aria-hidden="true"></span><span class="tagline mono">/ news dla builderów</span><a class="rss mono" href="/rss.xml">rss.xml ↗</a></header>
+<div class="feed-layout"><aside class="categories"><h2>FEED / KATEGORIE</h2><nav aria-label="Kategorie"><a class="active" href="/">› Wszystko</a><a href="/kat/modele.html">· Modele</a><a href="/kat/narzedzia.html">· Narzędzia</a><a href="/kat/open-source.html">· Open source</a><a href="/kat/cenniki.html">· Cenniki</a><a href="/kat/badania.html">· Badania</a><a href="/kat/infrastruktura.html">· Infrastruktura</a></nav></aside>
+<main class="feed-list" id="content">{% if summary %}<aside class="summary"><span class="meta">~ w skrócie /</span><p>{{ summary }}</p></aside>{% endif %}<h1>Najnowsze</h1>{% for article in articles %}<article class="news-item"><time class="meta" datetime="{{ article.published_at|iso }}">{{ article.published_at|time }}</time><h2><a href="/a/{{ article.slug }}.html">{{ article.title_pl }}</a></h2><p>{{ article.lead_pl }}</p><span class="meta">{{ article.category }}</span></article>{% endfor %}</main>
+<aside class="rail feed-rail"><h2>// czytasz, bo budujesz</h2><p>Zero sponsorowanych rankingów „top 10 AI tools”.</p><span>Tylko wiadomości, które mogą coś zmienić w Twoim stacku.</span></aside></div>
+<footer class="footer"><span>ai:///feed © 2026</span><span>no tracking · no noise · just signal</span></footer></body></html>''').render(articles=articles, summary=summary)
+
+
+def render_article(article, previous=None):
+    env = Environment(autoescape=select_autoescape(["html"]))
+    return env.from_string('''<!doctype html><html lang="pl"><meta charset="utf-8"><title>{{ article.title_pl }}</title>
+<body><a href="/">Wróć do feedu</a><article><h1>{{ article.title_pl }}</h1><p>{{ article.lead_pl }}</p>
+<p>{{ article.body_pl }}</p>{% if previous %}<section><h2>Wcześniej o tym temacie</h2>
+<a href="/a/{{ previous.slug }}.html">{{ previous.title_pl }}</a></section>{% endif %}
+<section><h2>Źródła</h2><ul>{% for source in article.sources %}
+<li><a href="{{ source.url }}" rel="noopener noreferrer">{{ source.name }}</a></li>{% endfor %}</ul></section>
+</article></body></html>''').render(article=article, previous=previous)
+
+
+def write_site(store, output_dir, site_url="https://ai.gradzik.org"):
+    output = Path(output_dir)
+    articles_dir = output / "a"
+    articles_dir.mkdir(parents=True, exist_ok=True)
+    articles = store.articles_since(0)
+    (output / "index.html").write_text(render_feed(articles), encoding="utf-8")
+    categories_dir = output / "kat"
+    categories_dir.mkdir(parents=True, exist_ok=True)
+    for category in ("modele", "narzedzia", "open-source", "cenniki", "badania", "infrastruktura"):
+        filtered = [article for article in articles if article.category == category]
+        (categories_dir / f"{category}.html").write_text(render_feed(filtered), encoding="utf-8")
+    env = Environment(autoescape=True)
+    rss = env.from_string('''<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>ai:///feed</title><link>{{ site_url }}</link><description>Wiadomości AI dla programistów</description>{% for a in articles[:50] %}<item><title>{{ a.title_pl }}</title><link>{{ site_url }}/a/{{ a.slug }}.html</link><guid>{{ site_url }}/a/{{ a.slug }}.html</guid><description>{{ a.lead_pl }}</description></item>{% endfor %}</channel></rss>''').render(articles=articles, site_url=site_url.rstrip("/"))
+    (output / "rss.xml").write_text(rss, encoding="utf-8")
+    for article in articles:
+        previous = store.article_by_id(article.delta_of) if article.delta_of is not None else None
+        (articles_dir / f"{article.slug}.html").write_text(render_article(article, previous), encoding="utf-8")
+
+
+def slugify(title):
+    text = unicodedata.normalize("NFKD", title).translate(str.maketrans("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ", "acelnoszzACELNOSZZ"))
+    text = text.encode("ascii", "ignore").decode("ascii").lower()
+    text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+    if not text:
+        raise ValueError("title has no usable slug characters")
+    return text
