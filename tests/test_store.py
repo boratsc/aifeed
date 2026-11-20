@@ -127,6 +127,16 @@ def test_editor_job_lifecycle(tmp_path):
     assert store.job("k1")["article_id"] is None
 
 
+def test_mark_done_creates_row_when_missing(tmp_path):
+    # Recovery z DB sprzed istnienia tabeli: mark_done bez wcześniejszego mark_running.
+    store = Store(str(tmp_path / "db"))
+    store.mark_done("k9", 3)
+    assert store.job("k9")["state"] == "done"
+    assert store.job("k9")["article_id"] == 3
+    store.mark_failed("k8")
+    assert store.job("k8")["state"] == "failed"
+
+
 def test_settings_editor_defaults(monkeypatch):
     from aifeed.config import Settings
     for var in ("EDITOR_CONCURRENCY", "EDITOR_429_RETRIES", "EDITOR_STALE_SECONDS"):

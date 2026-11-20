@@ -1,11 +1,19 @@
 """Validate editorial output before publication."""
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
+import hashlib
 import json
 import logging
+import time
 
 from .llm import chat, clean_pl
 from .render import slugify
+from .store import Store
 from .dedup import classify_candidate
+
+
+def group_key(ids):
+    return hashlib.sha256(",".join(str(i) for i in sorted(ids)).encode()).hexdigest()
 
 
 def run(settings, store):
@@ -13,34 +21,61 @@ def run(settings, store):
     if not materials:
         return 0
     by_id = {item["id"]: item for item in materials}
-    count = 0
+    pending = []
     for ids in group_materials(settings, materials):
+        key = group_key(ids)
+        job = store.job(key)
+        if job is not None and job["state"] == "done":
+            # Recovery: crash between mark_done and mark_processed.
+            for item_id in ids:
+                store.mark_processed(item_id)
+            continue
+        if job is not None and job["state"] == "running" and time.time() - job["started_at"] < settings.editor_stale_seconds:
+            continue  # fresh claim from another run
+        store.mark_running(key)
         group = [by_id[item_id] for item_id in ids]
         sources = [{"name": item["source_id"], "url": item["url"], "note": item["title"]} for item in group]
         image = next((item["og_image"] for item in group if item.get("og_image")), None)
-        try:
-            article = edit_article(settings, group, sources)
-        except ValueError as exc:
-            logging.warning("Editorial validation failed for IDs %s: %s", ids, exc)
-            continue
-        if image and isinstance(article, dict):
-            article["image"] = image
-        decision = classify_candidate(settings, store, {"title": article["title_pl"], "summary_pl": article["lead_pl"]})
-        if decision["verdict"] == "same":
-            continue
-        if decision["verdict"] in {"new", "extension"}:
-            delta_of = decision["article_id"] if decision["verdict"] == "extension" else None
-            save_new_article(store, article, decision["embedding"], max(item["published_at"] for item in group), delta_of)
-            count += 1
-        elif decision["verdict"] == "merge":
-            existing = store.article_by_id(decision["article_id"])
-            sources_by_url = {source["url"]: source for source in existing.sources + article["sources"]}
-            store.update_article(existing.id, title_pl=article["title_pl"], lead_pl=article["lead_pl"],
-                                 body_pl=article["body_pl"], sources=list(sources_by_url.values()), embedding=decision["embedding"])
-        else:
-            raise ValueError("unknown editorial decision")
-        for item in group:
-            store.mark_processed(item["id"])
+        pending.append((key, group, sources, image))
+    count = 0
+    with ThreadPoolExecutor(max_workers=settings.editor_concurrency) as pool:
+        futures = [pool.submit(_process_group, settings, store.db_path, key, group, sources, image)
+                   for key, group, sources, image in pending]
+        for future in futures:
+            count += future.result()
+    return count
+
+
+def _process_group(settings, db_path, key, group, sources, image):
+    # sqlite3.Connection is not thread-safe: each worker opens its own (WAL).
+    store = Store(db_path)
+    try:
+        article = edit_article(settings, group, sources)
+    except ValueError as exc:
+        logging.warning("Editorial validation failed for IDs %s: %s", [item["id"] for item in group], exc)
+        store.mark_failed(key)
+        return 0
+    if image and isinstance(article, dict):
+        article["image"] = image
+    decision = classify_candidate(settings, store, {"title": article["title_pl"], "summary_pl": article["lead_pl"]})
+    count = 0
+    if decision["verdict"] == "same":
+        article_id = decision["article_id"]
+    elif decision["verdict"] in {"new", "extension"}:
+        delta_of = decision["article_id"] if decision["verdict"] == "extension" else None
+        article_id = save_new_article(store, article, decision["embedding"], max(item["published_at"] for item in group), delta_of)
+        count = 1
+    elif decision["verdict"] == "merge":
+        article_id = decision["article_id"]
+        existing = store.article_by_id(article_id)
+        sources_by_url = {source["url"]: source for source in existing.sources + article["sources"]}
+        store.update_article(existing.id, title_pl=article["title_pl"], lead_pl=article["lead_pl"],
+                             body_pl=article["body_pl"], sources=list(sources_by_url.values()), embedding=decision["embedding"])
+    else:
+        raise ValueError("unknown editorial decision")
+    for item in group:
+        store.mark_processed(item["id"])
+    store.mark_done(key, article_id)
     return count
 
 

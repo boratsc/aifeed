@@ -169,16 +169,22 @@ class Store:
         self.db.commit()
 
     def mark_done(self, group_key: str, article_id: int):
+        now = time.time()
         self.db.execute(
-            "UPDATE editor_job SET state = 'done', article_id = ?, updated_at = ? WHERE group_key = ?",
-            (article_id, time.time(), group_key),
+            "INSERT INTO editor_job (group_key, state, started_at, updated_at, article_id) "
+            "VALUES (?, 'done', ?, ?, ?) ON CONFLICT(group_key) DO UPDATE SET "
+            "state = 'done', article_id = excluded.article_id, updated_at = excluded.updated_at",
+            (group_key, now, now, article_id),
         )
         self.db.commit()
 
     def mark_failed(self, group_key: str):
+        now = time.time()
         self.db.execute(
-            "UPDATE editor_job SET state = 'failed', updated_at = ? WHERE group_key = ?",
-            (time.time(), group_key),
+            "INSERT INTO editor_job (group_key, state, started_at, updated_at) "
+            "VALUES (?, 'failed', ?, ?) ON CONFLICT(group_key) DO UPDATE SET "
+            "state = 'failed', updated_at = excluded.updated_at",
+            (group_key, now, now),
         )
         self.db.commit()
 

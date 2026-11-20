@@ -178,3 +178,107 @@ def test_editor_prompt_forbids_narrating_compliance(monkeypatch):
     editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
     assert "Nie wspominaj o ich braku" in captured["system"]
     assert "Nie opisuj procesu redakcji" in captured["system"]
+
+
+def _one_candidate(tmp_path):
+    store = Store(str(tmp_path / "db"))
+    raw_id = store.upsert_raw("s", "https://example.org/1", "T", 1000.0, "F", None)
+    store.db.execute("UPDATE raw SET triaged=1,relevant=1,category='modele',summary_pl='F'")
+    store.db.commit()
+    return store, raw_id
+
+
+def test_group_key_is_order_insensitive():
+    import aifeed.editor as editor
+    assert editor.group_key([2, 1]) == editor.group_key([1, 2])
+    assert editor.group_key([1, 2]) != editor.group_key([1])
+
+
+def test_done_group_is_skipped_and_recovered(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    store, raw_id = _one_candidate(tmp_path)
+    monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[raw_id]])
+    key = editor.group_key([raw_id])
+    store.mark_done(key, 1)
+    def boom(*a):
+        raise AssertionError("edit_article called for done group")
+    monkeypatch.setattr(editor, "edit_article", boom)
+    assert editor.run(Settings(), store) == 0
+    assert store.relevant_candidates() == []
+
+
+def test_fresh_running_group_is_skipped(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    store, raw_id = _one_candidate(tmp_path)
+    monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[raw_id]])
+    store.mark_running(editor.group_key([raw_id]))
+    def boom(*a):
+        raise AssertionError("edit_article called for fresh running group")
+    monkeypatch.setattr(editor, "edit_article", boom)
+    assert editor.run(Settings(), store) == 0
+    assert [item["id"] for item in store.relevant_candidates()] == [raw_id]
+
+
+def test_stale_running_group_is_retried(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    store, raw_id = _one_candidate(tmp_path)
+    monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[raw_id]])
+    key = editor.group_key([raw_id])
+    store.mark_running(key)
+    store.db.execute("UPDATE editor_job SET started_at = started_at - 99999")
+    store.db.commit()
+    output = {"title_pl": "Artykuł", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**output, "sources": sources})
+    monkeypatch.setattr(editor, "classify_candidate", lambda *a: {"verdict": "new", "article_id": None, "embedding": [1.0]})
+    assert editor.run(Settings(), store) == 1
+    assert store.job(key)["state"] == "done"
+
+
+def test_failed_group_is_retried_next_run(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    store, raw_id = _one_candidate(tmp_path)
+    monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[raw_id]])
+    key = editor.group_key([raw_id])
+    def bad(settings, materials, sources):
+        raise ValueError("article exceeds 450 words")
+    monkeypatch.setattr(editor, "edit_article", bad)
+    assert editor.run(Settings(), store) == 0
+    assert store.job(key)["state"] == "failed"
+    assert [item["id"] for item in store.relevant_candidates()] == [raw_id]
+    output = {"title_pl": "Artykuł", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**output, "sources": sources})
+    monkeypatch.setattr(editor, "classify_candidate", lambda *a: {"verdict": "new", "article_id": None, "embedding": [1.0]})
+    assert editor.run(Settings(), store) == 1
+    assert store.job(key)["state"] == "done"
+
+
+def test_same_verdict_marks_processed(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    store, raw_id = _one_candidate(tmp_path)
+    monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[raw_id]])
+    aid = store.add_article("a", "A", "L", "B", "modele", [{"name": "S", "url": "https://example.org"}], None, None, [1.0], 900.0, None)
+    output = {"title_pl": "A", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**output, "sources": sources})
+    monkeypatch.setattr(editor, "classify_candidate", lambda *a: {"verdict": "same", "article_id": aid, "embedding": [1.0]})
+    assert editor.run(Settings(), store) == 0
+    assert store.relevant_candidates() == []
+    assert store.job(editor.group_key([raw_id]))["state"] == "done"
+
+
+def test_run_uses_configured_concurrency(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    from concurrent.futures import ThreadPoolExecutor as RealExecutor
+    store, raw_id = _one_candidate(tmp_path)
+    monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[raw_id]])
+    captured = {}
+    class CapturingExecutor(RealExecutor):
+        def __init__(self, *args, **kwargs):
+            captured["max_workers"] = kwargs.get("max_workers")
+            super().__init__(*args, **kwargs)
+    monkeypatch.setattr(editor, "ThreadPoolExecutor", CapturingExecutor)
+    output = {"title_pl": "A", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**output, "sources": sources})
+    monkeypatch.setattr(editor, "classify_candidate", lambda *a: {"verdict": "new", "article_id": None, "embedding": [1.0]})
+    settings = Settings()
+    assert editor.run(settings, store) == 1
+    assert captured["max_workers"] == settings.editor_concurrency
