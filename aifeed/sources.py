@@ -21,6 +21,8 @@ RSS_SOURCES = {
     "interconnects": "https://www.interconnects.ai/feed",
     "latent_space": "https://www.latent.space/feed",
     "purepc": "https://www.purepc.pl/rss.xml",
+    "qwen_blog": "https://qwenlm.github.io/blog/index.xml",
+    "leiphone": "https://www.leiphone.com/feed",
 }
 
 HTML_SOURCES = {
