@@ -204,7 +204,7 @@ def test_ingest_backfills_empty_content_from_article_page():
     feed = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>
     <item><title>T</title><link>https://example.org/post</link>
     <pubDate>Fri, 20 Nov 2026 00:00:00 GMT</pubDate></item></channel></rss>"""
-    page = b"<html><main><div class='prose'><p>Pelna tresc publikacji.</p></div></main></html>"
+    page = b"<html><main><div class='prose'><p>Pelna tresc publikacji, ktora jest dostatecznie dluga, zeby nie byc uznana za zajawke.</p></div></main></html>"
     def handler(request):
         if str(request.url) == "https://example.org/feed":
             return httpx.Response(200, content=feed)
@@ -212,7 +212,7 @@ def test_ingest_backfills_empty_content_from_article_page():
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         ingest_feeds(client, store, {"src": "https://example.org/feed"}, 0)
     row = store.db.execute("SELECT content FROM raw").fetchone()
-    assert row["content"] == "Pelna tresc publikacji."
+    assert row["content"] == "Pelna tresc publikacji, ktora jest dostatecznie dluga, zeby nie byc uznana za zajawke."
 
 
 def test_ingest_keeps_rss_content_when_present():
@@ -224,7 +224,7 @@ def test_ingest_keeps_rss_content_when_present():
     feed = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>
     <item><title>T</title><link>https://example.org/post</link>
     <pubDate>Fri, 20 Nov 2026 00:00:00 GMT</pubDate>
-    <description>Juz jest tresc z RSS.</description></item></channel></rss>"""
+    <description>Juz jest tresc z RSS - dostatecznie dluga aby nie odpalac backfillu strony.</description></item></channel></rss>"""
     calls = []
     def handler(request):
         calls.append(str(request.url))
@@ -232,7 +232,7 @@ def test_ingest_keeps_rss_content_when_present():
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         ingest_feeds(client, store, {"src": "https://example.org/feed"}, 0)
     assert calls == ["https://example.org/feed"]  # bez dodatkowego fetcha strony
-    assert store.db.execute("SELECT content FROM raw").fetchone()["content"] == "Juz jest tresc z RSS."
+    assert store.db.execute("SELECT content FROM raw").fetchone()["content"] == "Juz jest tresc z RSS - dostatecznie dluga aby nie odpalac backfillu strony."
 
 
 def test_extract_article_images_skips_avatars():
@@ -271,3 +271,23 @@ def test_ingest_appends_figure_markdown_to_backfilled_content():
     content = store.db.execute("SELECT content FROM raw").fetchone()["content"]
     assert "Tekst publikacji." in content
     assert "![Wykres wynikow](https://cdn.example.com/fig.png)" in content
+
+
+def test_ingest_backfills_trivial_content_too():
+    import httpx
+    from aifeed.fetch import ingest_feeds
+    from aifeed.store import Store
+    import tempfile, os
+    store = Store(os.path.join(tempfile.mkdtemp(), "db"))
+    feed = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>
+    <item><title>T</title><link>https://example.org/post</link>
+    <pubDate>Fri, 20 Nov 2026 00:00:00 GMT</pubDate>
+    <description>Comments</description></item></channel></rss>"""
+    page = b"<html><article><p>Pelna tresc artykulu z linku, ktora jest dostatecznie dluga by nie byc zajawka.</p></article></html>"
+    def handler(request):
+        if str(request.url).endswith("/feed"):
+            return httpx.Response(200, content=feed)
+        return httpx.Response(200, content=page)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        ingest_feeds(client, store, {"src": "https://example.org/feed"}, 0)
+    assert store.db.execute("SELECT content FROM raw").fetchone()["content"] == "Pelna tresc artykulu z linku, ktora jest dostatecznie dluga by nie byc zajawka."

@@ -56,9 +56,9 @@ def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts:
         published_at = item["published_at"]
         if published_at is None or published_at < since_ts:
             continue
-        if not item["content"]:
-            # RSS bez treści (HF, blog.google): dociągnij pełny tekst strony,
-            # inaczej redaktor dostaje sam tytuł i produkuje zajawkę.
+        if not item["content"] or len(item["content"]) < 40:
+            # RSS bez/prawie bez treści (HF, blog.google, HN=link "Comments"):
+            # dociągnij pełny tekst strony, inaczej redaktor dostaje sam tytuł.
             try:
                 resp = client.get(item["url"], timeout=20, follow_redirects=True)
                 resp.raise_for_status()
@@ -67,6 +67,8 @@ def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts:
                 item["content"] = text + ("\n\n" + "\n\n".join(figures) if figures else "")
             except httpx.HTTPError:
                 pass
+        if len(item["content"]) < 40:
+            item["content"] = item["title"]
         before = store.db.total_changes
         store.upsert_raw(item["source_id"], item["url"], item["title"], published_at, item["content"], item.get("og_image"))
         inserted += store.db.total_changes - before
