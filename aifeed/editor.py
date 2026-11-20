@@ -4,6 +4,7 @@ from urllib.parse import urlsplit
 import hashlib
 import json
 import logging
+import threading
 import time
 
 from .llm import chat, clean_pl
@@ -14,6 +15,12 @@ from .dedup import classify_candidate
 
 def group_key(ids):
     return hashlib.sha256(",".join(str(i) for i in sorted(ids)).encode()).hexdigest()
+
+
+HEARTBEAT_SECONDS = 60
+# Dedup snapshot -> save must be atomic across workers: two near-duplicate
+# groups classified in parallel would both get verdict "new" (or crash on slug).
+_save_lock = threading.Lock()
 
 
 def run(settings, store):
@@ -30,8 +37,8 @@ def run(settings, store):
             for item_id in ids:
                 store.mark_processed(item_id)
             continue
-        if job is not None and job["state"] == "running" and time.time() - job["started_at"] < settings.editor_stale_seconds:
-            continue  # fresh claim from another run
+        if job is not None and job["state"] == "running" and time.time() - job["updated_at"] < settings.editor_stale_seconds:
+            continue  # live claim (worker heartbeats updated_at while queued/working)
         store.mark_running(key)
         group = [by_id[item_id] for item_id in ids]
         sources = [{"name": item["source_id"], "url": item["url"], "note": item["title"]} for item in group]
@@ -49,34 +56,49 @@ def run(settings, store):
 def _process_group(settings, db_path, key, group, sources, image):
     # sqlite3.Connection is not thread-safe: each worker opens its own (WAL).
     store = Store(db_path)
+    stop = threading.Event()
+
+    def beat():
+        ticker_store = Store(db_path)  # own connection: sqlite3 is thread-bound
+        while not stop.wait(HEARTBEAT_SECONDS):
+            ticker_store.heartbeat(key)
+
+    store.heartbeat(key)
+    ticker = threading.Thread(target=beat, daemon=True)
+    ticker.start()
     try:
         article = edit_article(settings, group, sources)
-    except ValueError as exc:
-        logging.warning("Editorial validation failed for IDs %s: %s", [item["id"] for item in group], exc)
+        if image and isinstance(article, dict):
+            article["image"] = image
+        with _save_lock:
+            decision = classify_candidate(settings, store, {"title": article["title_pl"], "summary_pl": article["lead_pl"]})
+            count = 0
+            if decision["verdict"] == "same":
+                article_id = decision["article_id"]
+            elif decision["verdict"] in {"new", "extension"}:
+                delta_of = decision["article_id"] if decision["verdict"] == "extension" else None
+                article_id = save_new_article(store, article, decision["embedding"], max(item["published_at"] for item in group), delta_of)
+                count = 1
+            elif decision["verdict"] == "merge":
+                article_id = decision["article_id"]
+                existing = store.article_by_id(article_id)
+                sources_by_url = {source["url"]: source for source in existing.sources + article["sources"]}
+                store.update_article(existing.id, title_pl=article["title_pl"], lead_pl=article["lead_pl"],
+                                     body_pl=article["body_pl"], sources=list(sources_by_url.values()), embedding=decision["embedding"])
+            else:
+                raise ValueError("unknown editorial decision")
+            for item in group:
+                store.mark_processed(item["id"])
+            store.mark_done(key, article_id)
+        return count
+    except Exception as exc:
+        # Any failure (validation, gateway 4xx, embed timeout) must leave the
+        # group visibly failed, not "running", and must not kill the whole run.
+        logging.warning("Editorial processing failed for IDs %s: %s", [item["id"] for item in group], exc)
         store.mark_failed(key)
         return 0
-    if image and isinstance(article, dict):
-        article["image"] = image
-    decision = classify_candidate(settings, store, {"title": article["title_pl"], "summary_pl": article["lead_pl"]})
-    count = 0
-    if decision["verdict"] == "same":
-        article_id = decision["article_id"]
-    elif decision["verdict"] in {"new", "extension"}:
-        delta_of = decision["article_id"] if decision["verdict"] == "extension" else None
-        article_id = save_new_article(store, article, decision["embedding"], max(item["published_at"] for item in group), delta_of)
-        count = 1
-    elif decision["verdict"] == "merge":
-        article_id = decision["article_id"]
-        existing = store.article_by_id(article_id)
-        sources_by_url = {source["url"]: source for source in existing.sources + article["sources"]}
-        store.update_article(existing.id, title_pl=article["title_pl"], lead_pl=article["lead_pl"],
-                             body_pl=article["body_pl"], sources=list(sources_by_url.values()), embedding=decision["embedding"])
-    else:
-        raise ValueError("unknown editorial decision")
-    for item in group:
-        store.mark_processed(item["id"])
-    store.mark_done(key, article_id)
-    return count
+    finally:
+        stop.set()
 
 
 def save_new_article(store, article, embedding, published_at, delta_of=None):

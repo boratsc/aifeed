@@ -178,6 +178,10 @@ class Store:
         )
         self.db.commit()
 
+    def heartbeat(self, group_key: str):
+        self.db.execute("UPDATE editor_job SET updated_at = ? WHERE group_key = ?", (time.time(), group_key))
+        self.db.commit()
+
     def mark_failed(self, group_key: str):
         now = time.time()
         self.db.execute(

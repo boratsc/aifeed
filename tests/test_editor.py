@@ -225,7 +225,7 @@ def test_stale_running_group_is_retried(tmp_path, monkeypatch):
     monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[raw_id]])
     key = editor.group_key([raw_id])
     store.mark_running(key)
-    store.db.execute("UPDATE editor_job SET started_at = started_at - 99999")
+    store.db.execute("UPDATE editor_job SET started_at = started_at - 99999, updated_at = updated_at - 99999")
     store.db.commit()
     output = {"title_pl": "Artykuł", "lead_pl": "L", "body_pl": "B", "category": "modele"}
     monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**output, "sources": sources})
@@ -282,3 +282,70 @@ def test_run_uses_configured_concurrency(tmp_path, monkeypatch):
     settings = Settings()
     assert editor.run(settings, store) == 1
     assert captured["max_workers"] == settings.editor_concurrency
+
+
+def test_worker_exception_marks_failed_and_does_not_abort_run(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    store, raw_id = _one_candidate(tmp_path)
+    monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[raw_id]])
+    output = {"title_pl": "A", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**output, "sources": sources})
+    def boom(*a):
+        raise RuntimeError("embed timeout")
+    monkeypatch.setattr(editor, "classify_candidate", boom)
+    assert editor.run(Settings(), store) == 0
+    assert store.job(editor.group_key([raw_id]))["state"] == "failed"
+    assert [item["id"] for item in store.relevant_candidates()] == [raw_id]
+
+
+def test_worker_heartbeat_prevents_stale_reclaim(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    store, raw_id = _one_candidate(tmp_path)
+    monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[raw_id]])
+    key = editor.group_key([raw_id])
+    store.mark_running(key)
+    store.db.execute("UPDATE editor_job SET started_at = started_at - 99999, updated_at = updated_at - 99999")
+    store.db.commit()
+    output = {"title_pl": "A", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    def slow_edit(settings, materials, sources):
+        # praca trwa; heartbeat w trakcie ma odświeżyć updated_at (własne połączenie: test chodzi w workerze)
+        row = Store(store.db_path).job(key)
+        assert row["updated_at"] > row["started_at"]
+        return {**output, "sources": sources}
+    monkeypatch.setattr(editor, "edit_article", slow_edit)
+    monkeypatch.setattr(editor, "classify_candidate", lambda *a: {"verdict": "new", "article_id": None, "embedding": [1.0]})
+    monkeypatch.setattr(editor, "HEARTBEAT_SECONDS", 0)
+    assert editor.run(Settings(), store) == 1
+
+
+def test_duplicate_titles_across_workers_do_not_crash(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    store = Store(str(tmp_path / "db"))
+    ids = [store.upsert_raw("s", f"https://example.org/{i}", f"T{i}", 1000.0+i, "F", None) for i in range(2)]
+    store.db.execute("UPDATE raw SET triaged=1,relevant=1,category='modele',summary_pl='F'")
+    store.db.commit()
+    monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[ids[0]], [ids[1]]])
+    output = {"title_pl": "Ten sam", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**output, "sources": sources})
+    # obaj workerzy widzą pustą bazę embeddingów (snapshot przed zapisem) → obaj new
+    monkeypatch.setattr(editor, "classify_candidate", lambda *a: {"verdict": "new", "article_id": None, "embedding": [1.0]})
+    assert editor.run(Settings(), store) == 2
+    assert store.article_by_slug("ten-sam") is not None
+    assert store.article_by_slug("ten-sam-2") is not None
+
+
+def test_parallel_workers_write_to_one_db(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    store = Store(str(tmp_path / "db"))
+    ids = [store.upsert_raw("s", f"https://example.org/{i}", f"T{i}", 1000.0+i, "F", None) for i in range(6)]
+    store.db.execute("UPDATE raw SET triaged=1,relevant=1,category='modele',summary_pl='F'")
+    store.db.commit()
+    monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[i] for i in ids])
+    def edit(settings, materials, sources):
+        return {"title_pl": f"Art {materials[0]['id']}", "lead_pl": "L", "body_pl": "B", "category": "modele", "sources": sources}
+    monkeypatch.setattr(editor, "edit_article", edit)
+    monkeypatch.setattr(editor, "classify_candidate", lambda *a: {"verdict": "new", "article_id": None, "embedding": [1.0]})
+    assert editor.run(Settings(), store) == 6
+    assert store.relevant_candidates() == []
+    states = [r["state"] for r in store.db.execute("SELECT state FROM editor_job")]
+    assert states == ["done"] * 6
