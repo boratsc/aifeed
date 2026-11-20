@@ -34,7 +34,10 @@ def test_write_site_creates_feed_and_article(tmp_path):
     write_site(store, str(output))
     assert "Tytuł" in (output / "index.html").read_text()
     assert "Treść" in (output / "a" / "news.html").read_text()
-    assert "Tytuł" in (output / "kat" / "modele.html").read_text()
+    category_html = (output / "kat" / "modele.html").read_text()
+    assert "Tytuł" in category_html
+    assert 'class="active" href="/kat/modele.html"' in category_html
+    assert 'class="active" href="/"' not in category_html
     assert "Tytuł" not in (output / "kat" / "cenniki.html").read_text()
 
 
