@@ -93,6 +93,17 @@ def test_feed_shows_summary_only_when_provided():
     assert "Podsumowanie dnia." in render_feed([article], summary="Podsumowanie dnia.")
 
 
+def test_feed_rail_lists_tool_articles():
+    from aifeed.store import Article
+    tools = Article(1, "codex", "Codex CLI 0.171", "l", "b", "narzedzia", [], None, None, [], published_at=2000.0)
+    model = Article(2, "glm", "GLM release", "l", "b", "modele", [], None, None, [], published_at=3000.0)
+    html = render_feed([model, tools])
+    assert "// narzędzia" in html
+    assert "Codex CLI 0.171" in html
+    assert 'href="/a/codex.html"' in html
+    assert "GLM release" not in html.split("feed-rail", 1)[1]
+
+
 def test_feed_has_accessible_responsive_structure():
     article = Article(1, "news", "Tytuł", "Lead", "Body", "modele", [], None, None, [], 1.0, None, 1.0)
     html = render_feed([article])
