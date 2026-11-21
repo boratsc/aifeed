@@ -303,3 +303,24 @@ def test_fetch_feed_sends_user_agent():
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         fetch_feed(client, "https://x.example/feed")
     assert captured["ua"] and "Mozilla" in captured["ua"]
+
+
+def test_ingest_skips_ainews_digests():
+    import httpx
+    from aifeed.fetch import ingest_feeds
+    from aifeed.store import Store
+    import tempfile, os
+    store = Store(os.path.join(tempfile.mkdtemp(), "db"))
+    feed = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>
+    <item><title>[AINews] Riemann + Gemini + Inkling digest</title><link>https://x/1</link>
+    <pubDate>Fri, 21 Nov 2026 00:00:00 GMT</pubDate><description>multi topic</description></item>
+    <item><title>Real single news about an API</title><link>https://x/2</link>
+    <pubDate>Fri, 21 Nov 2026 00:00:00 GMT</pubDate><description>single topic description</description></item>
+    </channel></rss>"""
+    def handler(request):
+        return httpx.Response(200, content=feed)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        ingest_feeds(client, store, {"s": "https://x/feed"}, 0)
+    titles = [r["title"] for r in store.db.execute("SELECT title FROM raw")]
+    assert "[AINews]" not in " ".join(titles)
+    assert "Real single news about an API" in titles

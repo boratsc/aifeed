@@ -59,6 +59,9 @@ def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts:
         published_at = item["published_at"]
         if published_at is None or published_at < since_ts:
             continue
+        title = item.get("title") or ""
+        if title.strip().lower().startswith("[ainews]"):
+            continue  # Latent Space tygodniowy digest: kilka newsów w jednym wpisie
         if not item["content"] or len(item["content"]) < 40:
             # RSS bez/prawie bez treści (HF, blog.google, HN=link "Comments"):
             # dociągnij pełny tekst strony, inaczej redaktor dostaje sam tytuł.
