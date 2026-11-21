@@ -116,14 +116,15 @@ def fetch_sources(client: httpx.Client, sources: dict[str, str]) -> tuple[list[d
 
 def fetch_feed(client: httpx.Client, url: str) -> list[dict]:
     last = None
-    for attempt in range(3):
+    # TLS handshake timeout (qbitai) potrafi trwać >1s: wykładniczy backoff.
+    for attempt in range(4):
         try:
             response = client.get(url, timeout=20, follow_redirects=True, headers={"User-Agent": _UA})
             response.raise_for_status()
             return parse_feed(response.content)
-        except (httpx.ConnectError, httpx.ReadError) as exc:
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError, httpx.ReadTimeout) as exc:
             last = exc
-            time.sleep(0.5 * (attempt + 1))
+            time.sleep(2 ** attempt)  # 1, 2, 4, 8 s
         except httpx.HTTPError as exc:
             raise FetchError(f"failed to fetch feed: {exc}") from exc
     raise FetchError(f"failed to fetch feed after retries: {last}") from last
