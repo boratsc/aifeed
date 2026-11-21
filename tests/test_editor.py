@@ -417,3 +417,24 @@ def test_editor_prompt_uses_body_delimiter_not_json_body(monkeypatch):
     assert a["body_pl"] == "B"
     assert "---BODY---" in captured["system"]
     assert "JSON" in captured["system"]
+
+
+def test_validate_article_rejects_cjk_in_any_field():
+    for field in ("title_pl", "lead_pl", "body_pl"):
+        a = {"title_pl": "T", "lead_pl": "L", "body_pl": "B", "category": "modele",
+             "sources": [{"name": "S", "url": "https://example.org"}]}
+        a[field] = "test 阿里云 test"
+        with pytest.raises(ValueError, match="CJK"):
+            validate_article(a)
+
+
+def test_editor_prompt_forbids_cjk_and_demands_transliteration(monkeypatch):
+    import aifeed.editor as editor
+    captured = {}
+    def fake_chat(settings, model, system, user, **kw):
+        captured["system"] = system
+        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nB'
+    monkeypatch.setattr(editor, "chat", fake_chat)
+    editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
+    assert "chińsk" in captured["system"].lower() or "cjk" in captured["system"].lower()
+    assert "阿里云" in captured["system"] or "transkryb" in captured["system"].lower()

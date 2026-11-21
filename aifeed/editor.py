@@ -179,6 +179,10 @@ def edit_article(settings, materials, sources):
         "Nie opisuj procesu redakcji, klasyfikacji ani metodologii. "
         "Nie pisz zdań typu 'temat został zakwalifikowany', 'artykuł opiera się wyłącznie', 'w materiale nie zamieszczono'. "
         "Pisz wyłącznie fakty o produkcie lub narzędziu. "
+        "Nie zostawiaj żadnych znaków chińskich (CJK) w title_pl, lead_pl ani body_pl. "
+        "Chińskie nazwy firm i produktów zapisuj w powszechnej formie łacińskiej: "
+        "阿里云 to Alibaba Cloud, 百炼 to Bailian, 智谱 to Zhipu, 腾讯云 to Tencent Cloud, "
+        "火山引擎 to Volcano Engine, 豆包 to Doubao, 百度千帆 to Baidu Qianfan. "
         "Nie używaj znaku em dash. "
         "Odpowiedz dokładnie w tym formacie: najpierw jedna linia JSON z polami "
         "title_pl, lead_pl, category, bench (tablica lub null), promo (bool), bez pola body_pl; "
@@ -212,6 +216,10 @@ def edit_article(settings, materials, sources):
     return validate_article(article)
 
 
+def _has_cjk(text: str) -> bool:
+    return any("一" <= ch <= "鿿" for ch in text)
+
+
 META_PATTERNS = (
     "temat został zakwalifikowany",
     "artykuł opiera się wyłącznie",
@@ -230,6 +238,9 @@ def validate_article(article):
     body_lower = article["body_pl"].lower()
     if any(pattern in body_lower for pattern in META_PATTERNS):
         raise ValueError("editorial meta-commentary in body")
+    for field in ("title_pl", "lead_pl", "body_pl"):
+        if _has_cjk(article.get(field, "")):
+            raise ValueError(f"CJK characters in {field}")
     if len(article["body_pl"].split()) > MAX_WORDS:
         raise ValueError(f"article exceeds {MAX_WORDS} words")
     sources = article.get("sources")
