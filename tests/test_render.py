@@ -168,3 +168,17 @@ def test_promocje_excluded_from_main_feed_own_category_page(tmp_path):
     # ale mają własną stronę kategorii
     assert "Promocja Qwen" in (output / "kat" / "promocje.html").read_text()
     assert "promocje" in (output / "index.html").read_text()  # menu ma link do promocji
+
+
+def test_write_site_removes_stale_article_files(tmp_path):
+    store = Store(str(tmp_path / "db"))
+    aid = store.add_article("stary", "Stary", "L", "B", "modele", [{"name": "S", "url": "https://x"}], None, None, [], 1.0, None)
+    output = tmp_path / "site"
+    write_site(store, str(output))
+    old_file = output / "a" / "stary.html"
+    assert old_file.exists()
+    # usuń artykuł z bazy
+    store.db.execute("DELETE FROM article WHERE id=?", (aid,))
+    store.db.commit()
+    write_site(store, str(output))
+    assert not (output / "a" / "stary.html").exists()

@@ -109,6 +109,11 @@ def write_site(store, output_dir, site_url="https://ai.gradzik.org", img_dir=Non
     for article in articles:
         previous = store.article_by_id(article.delta_of) if article.delta_of is not None else None
         (articles_dir / f"{article.slug}.html").write_text(render_article(article, previous), encoding="utf-8")
+    # Usuń sierotki: pliki artykułów, których już nie ma w bazie (usunięte/zmiaane slug).
+    live_slugs = {article.slug for article in articles}
+    for f in articles_dir.glob("*.html"):
+        if f.stem not in live_slugs:
+            f.unlink()
 
 
 def slugify(title):
