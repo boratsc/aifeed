@@ -28,8 +28,8 @@ def test_write_site_paginates_older_news(tmp_path):
     write_site(store, str(output))
     assert "Tytuł 0" in (output / "index.html").read_text()
     assert "Tytuł 30" not in (output / "index.html").read_text()
-    assert "Tytuł 30" in (output / "page" / "2.html").read_text()
-    assert 'href="/page/2.html"' in (output / "index.html").read_text()
+    assert "Tytuł 30" in (output / "page" / "2" / "index.html").read_text()
+    assert 'href="/page/2/"' in (output / "index.html").read_text()
 
 
 def test_write_site_creates_rss_with_article_links(tmp_path):
@@ -39,7 +39,7 @@ def test_write_site_creates_rss_with_article_links(tmp_path):
     write_site(store, str(output), site_url="https://ai.gradzik.org")
     rss = (output / "rss.xml").read_text()
     assert "<rss" in rss
-    assert "https://ai.gradzik.org/a/news.html" in rss
+    assert "https://ai.gradzik.org/a/news/" in rss
     assert "Tytuł" in rss
     assert "<pubDate>Thu, 01 Jan 1970 00:00:01 +0000</pubDate>" in rss
 
@@ -50,12 +50,12 @@ def test_write_site_creates_feed_and_article(tmp_path):
     output = tmp_path / "site"
     write_site(store, str(output))
     assert "Tytuł" in (output / "index.html").read_text()
-    assert "Treść" in (output / "a" / "news.html").read_text()
-    category_html = (output / "kat" / "modele.html").read_text()
+    assert "Treść" in (output / "a" / "news" / "index.html").read_text()
+    category_html = (output / "kat" / "modele" / "index.html").read_text()
     assert "Tytuł" in category_html
-    assert 'class="active" href="/kat/modele.html"' in category_html
+    assert 'class="active" href="/kat/modele/"' in category_html
     assert 'class="active" href="/"' not in category_html
-    assert "Tytuł" not in (output / "kat" / "cenniki.html").read_text()
+    assert "Tytuł" not in (output / "kat" / "cenniki" / "index.html").read_text()
 
 
 def test_article_renders_markdown_body_as_html():
@@ -80,7 +80,7 @@ def test_article_links_sources_and_previous_coverage():
     previous = Article(1, "original", "Pierwszy artykuł", "Lead", "Body", "modele", [], None, None, [], 1.0, None, 1.0)
     html = render_article(article, previous)
     assert 'href="https://example.org/bench"' in html
-    assert 'href="/a/original.html"' in html
+    assert 'href="/a/original/"' in html
     assert "Nowe fakty." in html
     assert 'name="viewport"' in html
     assert 'class="article-layout"' in html
@@ -100,7 +100,7 @@ def test_feed_rail_lists_tool_articles():
     html = render_feed([model, tools])
     assert "// narzędzia" in html
     assert "Codex CLI 0.171" in html
-    assert 'href="/a/codex.html"' in html
+    assert 'href="/a/codex/"' in html
     assert "GLM release" not in html.split("feed-rail", 1)[1]
 
 
@@ -126,7 +126,7 @@ def test_render_feed_escapes_untrusted_title():
     html = render_feed([article])
     assert '<script>alert("x")</script>' not in html
     assert '&lt;script&gt;' in html
-    assert 'href="/a/news.html"' in html
+    assert 'href="/a/news/"' in html
 
 
 def test_tool_tag_encodes_at_sign_against_cloudflare_email_mangling():
@@ -166,7 +166,7 @@ def test_promocje_excluded_from_main_feed_own_category_page(tmp_path):
     # promocje nie śmiecą głównego feedu
     assert "Promocja Qwen" not in (output / "index.html").read_text()
     # ale mają własną stronę kategorii
-    assert "Promocja Qwen" in (output / "kat" / "promocje.html").read_text()
+    assert "Promocja Qwen" in (output / "kat" / "promocje" / "index.html").read_text()
     assert "promocje" in (output / "index.html").read_text()  # menu ma link do promocji
 
 
@@ -175,10 +175,11 @@ def test_write_site_removes_stale_article_files(tmp_path):
     aid = store.add_article("stary", "Stary", "L", "B", "modele", [{"name": "S", "url": "https://x"}], None, None, [], 1.0, None)
     output = tmp_path / "site"
     write_site(store, str(output))
-    old_file = output / "a" / "stary.html"
+    old_file = output / "a" / "stary" / "index.html"
     assert old_file.exists()
     # usuń artykuł z bazy
     store.db.execute("DELETE FROM article WHERE id=?", (aid,))
     store.db.commit()
     write_site(store, str(output))
-    assert not (output / "a" / "stary.html").exists()
+    assert not (output / "a" / "stary" / "index.html").exists()
+    assert not (output / "a" / "stary").exists()
