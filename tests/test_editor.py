@@ -438,3 +438,20 @@ def test_editor_prompt_forbids_cjk_and_demands_transliteration(monkeypatch):
     editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
     assert "chińsk" in captured["system"].lower() or "cjk" in captured["system"].lower()
     assert "阿里云" in captured["system"] or "transkryb" in captured["system"].lower()
+
+
+def test_edit_article_retries_when_cjk_leaks_to_body(monkeypatch):
+    import aifeed.editor as editor
+    sources = [{"name": "S", "url": "https://example.org"}]
+    bad = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\n阿里云 promo'
+    good = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nAlibaba Cloud promo'
+    responses = iter([bad, good])
+    calls = []
+    def fake_chat(settings, model, system, user, **kw):
+        calls.append(user)
+        return next(responses)
+    monkeypatch.setattr(editor, "chat", fake_chat)
+    result = editor.edit_article(Settings(), [{"title": "N"}], sources)
+    assert result["body_pl"] == "Alibaba Cloud promo"
+    assert len(calls) == 2
+    assert "阿里云" in calls[1]

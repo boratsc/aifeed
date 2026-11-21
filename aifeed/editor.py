@@ -201,10 +201,18 @@ def edit_article(settings, materials, sources):
     try:
         return validate_article(article)
     except ValueError as exc:
-        if f"{MAX_WORDS} words" not in str(exc):
+        err = str(exc)
+        if "CJK" in err:
+            instruction = ("Usuń wszystkie znaki chińskie (CJK) z title_pl, lead_pl i body_pl. "
+                           "Chińskie nazwy zastąp formą łacińską (阿里云→Alibaba Cloud, 百炼→Bailian, "
+                           "智谱→Zhipu, 腾讯云→Tencent Cloud, 火山引擎→Volcano Engine). "
+                           "Zwróć ponownie w tym samym formacie: JSON z metadanymi, linia ---BODY---, potem czysty Markdown.")
+        elif f"{MAX_WORDS} words" in err:
+            instruction = f"Skróć treść do maksymalnie {SHORTEN_TO} słów, zachowując najważniejsze fakty i atribucję. Zwróć ponownie w tym samym formacie: JSON z metadanymi, linia ---BODY---, potem czysty Markdown."
+        else:
             raise
     prompt = json.dumps({"materials": materials, "previous_article": article,
-                         "instruction": f"Skróć treść do maksymalnie {SHORTEN_TO} słów, zachowując najważniejsze fakty i atribucję. Zwróć ponownie w tym samym formacie: JSON z metadanymi, linia ---BODY---, potem czysty Markdown."}, ensure_ascii=False)
+                         "instruction": instruction}, ensure_ascii=False)
     text = chat(settings, settings.editor_model, system, prompt, json_mode=False)
     article = parse_article(text)
     if not isinstance(article, dict):
