@@ -134,3 +134,28 @@ def test_validate_triage_drops_unknown_category_instead_of_crashing():
     # nie crashuje; nieznana kategoria -> relevant False
     assert out[0]["relevant"] is False
     assert out[0]["category"] is None
+
+
+def test_map_category_via_llm_remaps_unknown(monkeypatch):
+    import aifeed.triage as triage
+    from aifeed.config import Settings
+    monkeypatch.setattr(triage, "chat", lambda settings, model, system, user, **kw: {"category": "narzedzia"})
+    assert triage.map_category_via_llm(Settings(), "agenci") == "narzedzia"
+
+
+def test_map_category_via_llm_returns_none_on_garbage(monkeypatch):
+    import aifeed.triage as triage
+    from aifeed.config import Settings
+    monkeypatch.setattr(triage, "chat", lambda settings, model, system, user, **kw: {"category": "bad"})
+    assert triage.map_category_via_llm(Settings(), "agenci") is None
+
+
+def test_validate_triage_remaps_unknown_via_llm_when_settings_present(monkeypatch):
+    import aifeed.triage as triage
+    from aifeed.config import Settings
+    monkeypatch.setattr(triage, "map_category_via_llm", lambda s, c: "narzedzia")
+    out = triage.validate_triage(
+        [{"raw_id": 1, "relevant": True, "category": "agenci", "summary_pl": "x"}],
+        {1}, {1: "openai"}, Settings())
+    assert out[0]["relevant"] is True
+    assert out[0]["category"] == "narzedzia"

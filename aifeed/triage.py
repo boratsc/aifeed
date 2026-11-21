@@ -43,7 +43,7 @@ def classify_batch(settings, items):
     payload = [{"raw_id": item.id, "title": item.title, "content": item.content[:5000]} for item in items]
     results = chat(settings, settings.triage_model, system, json.dumps(payload, ensure_ascii=False))
     source_by_id = {item.id: item.source_id for item in items}
-    return validate_triage(results, {item.id for item in items}, source_by_id)
+    return validate_triage(results, {item.id for item in items}, source_by_id, settings)
 
 CATEGORIES = {"modele", "narzedzia", "open-source", "cenniki", "badania", "infrastruktura", "promocje"}
 
@@ -73,7 +73,24 @@ def resolve_category(category: str | None, source_id: str) -> str | None:
     return cat
 
 
-def validate_triage(results: list[dict], expected_ids: set[int], source_by_id: dict[int, str] | None = None) -> list[dict]:
+def map_category_via_llm(settings, category: str) -> str | None:
+    """Drugi tani model przepisuje nieznaną kategorię do słownika (np. 'agenci'->'narzedzia')."""
+    system = (
+        "Jesteś klasyfikatorem kategorii. Otrzymujesz etykietę spoza słownika. "
+        "Zwróć WYŁĄCZNIE JSON {\"category\": \"...\"} gdzie category to JEDNA z: "
+        "modele, narzedzia, open-source, cenniki, badania, infrastruktura, promocje. "
+        "Jeśli nie pasuje do żadnej, zwróć category null. Nie używaj em dash."
+    )
+    out = chat(settings, settings.triage_model, system, category, json_mode=True)
+    if not isinstance(out, dict):
+        return None
+    cat = out.get("category")
+    if cat not in CATEGORIES:
+        return None
+    return cat
+
+
+def validate_triage(results: list[dict], expected_ids: set[int], source_by_id: dict[int, str] | None = None, settings=None) -> list[dict]:
     source_by_id = source_by_id or {}
     if not isinstance(results, list):
         raise ValueError("triage response must be a list")
@@ -93,11 +110,19 @@ def validate_triage(results: list[dict], expected_ids: set[int], source_by_id: d
         if relevant:
             item["category"] = resolve_category(item["category"], source_by_id.get(raw_id, ""))
             if item["category"] not in CATEGORIES:
-                # nieznana kategoria (model wymyślił token spoza słownika): nie zabijaj
-                # całego batcha, potraktuj jako nieistotny.
-                logging.warning("triage unknown category %r for raw %s", item["category"], raw_id)
-                item["relevant"] = False
-                item["category"] = None
+                # 1) spróbuj przepisać przez drugi model; 2) inaczej nie zabijaj batcha.
+                if settings is not None:
+                    mapped = map_category_via_llm(settings, item["category"])
+                    if mapped in CATEGORIES:
+                        item["category"] = mapped
+                    else:
+                        logging.warning("triage unknown category %r for raw %s", item["category"], raw_id)
+                        item["relevant"] = False
+                        item["category"] = None
+                else:
+                    logging.warning("triage unknown category %r for raw %s", item["category"], raw_id)
+                    item["relevant"] = False
+                    item["category"] = None
         elif item["category"] is not None:
             raise ValueError("irrelevant item category must be null")
         if not isinstance(item.get("summary_pl"), str):
