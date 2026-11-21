@@ -221,10 +221,11 @@ def test_ingest_keeps_rss_content_when_present():
     from aifeed.store import Store
     import tempfile, os
     store = Store(os.path.join(tempfile.mkdtemp(), "db"))
-    feed = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>
-    <item><title>T</title><link>https://example.org/post</link>
-    <pubDate>Fri, 20 Nov 2026 00:00:00 GMT</pubDate>
-    <description>Juz jest tresc z RSS - dostatecznie dluga aby nie odpalac backfillu strony.</description></item></channel></rss>"""
+    long = "Pelna tresc z RSS " * 60  # >600 znaków, news nie odpala backfillu
+    feed = ('<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>'
+            '<item><title>T</title><link>https://example.org/post</link>'
+            '<pubDate>Fri, 20 Nov 2026 00:00:00 GMT</pubDate>'
+            '<description>' + long + '</description></item></channel></rss>').encode('utf-8')
     calls = []
     def handler(request):
         calls.append(str(request.url))
@@ -232,7 +233,9 @@ def test_ingest_keeps_rss_content_when_present():
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         ingest_feeds(client, store, {"src": "https://example.org/feed"}, 0)
     assert calls == ["https://example.org/feed"]  # bez dodatkowego fetcha strony
-    assert store.db.execute("SELECT content FROM raw").fetchone()["content"] == "Juz jest tresc z RSS - dostatecznie dluga aby nie odpalac backfillu strony."
+    content = store.db.execute("SELECT content FROM raw").fetchone()["content"]
+    assert content.startswith("Pelna tresc z RSS")
+    assert len(content) > 600
 
 
 def test_extract_article_images_skips_avatars():
@@ -324,3 +327,47 @@ def test_ingest_skips_ainews_digests():
     titles = [r["title"] for r in store.db.execute("SELECT title FROM raw")]
     assert "[AINews]" not in " ".join(titles)
     assert "Real single news about an API" in titles
+
+
+def test_ingest_backfills_short_news_not_just_empty():
+    import httpx
+    from aifeed.fetch import ingest_feeds
+    from aifeed.store import Store
+    import tempfile, os
+    store = Store(os.path.join(tempfile.mkdtemp(), "db"))
+    feed = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>
+    <item><title>T</title><link>https://x/news/1</link>
+    <pubDate>Fri, 21 Nov 2026 00:00:00 GMT</pubDate>
+    <description>Krotka zajawka, ktora ma wiecej niz 40 ale mniej niz 600 znakow.</description>
+    </item></channel></rss>"""
+    page = b"<html><article><p>Pelna tresc artykulu, ktora jest dluga i prawdziwa, z faktami i liczbami oraz kontekstem tematu.</p></article></html>"
+    def handler(request):
+        if str(request.url).endswith("/feed"):
+            return httpx.Response(200, content=feed)
+        return httpx.Response(200, content=page)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        ingest_feeds(client, store, {"openai": "https://x/feed"}, 0)
+    content = store.db.execute("SELECT content FROM raw").fetchone()["content"]
+    assert "Pelna tresc artykulu" in content
+
+
+def test_ingest_does_not_backfill_promo_sources():
+    import httpx
+    from aifeed.fetch import ingest_feeds
+    from aifeed.store import Store
+    import tempfile, os
+    store = Store(os.path.join(tempfile.mkdtemp(), "db"))
+    feed = ('<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>'
+            '<item><title>Promocja Qwen 2折</title><link>https://aitkradar.cn/deals/x</link>'
+            '<pubDate>Fri, 21 Nov 2026 00:00:00 GMT</pubDate>'
+            '<description>限时特价 截止2026-11-25</description>'
+            '</item></channel></rss>').encode('utf-8')
+    calls = []
+    def handler(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, content=feed)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        ingest_feeds(client, store, {"aitkradar_deals": "https://aitkradar.cn/deals.xml"}, 0)
+    assert calls == ["https://aitkradar.cn/deals.xml"]  # brak fetchu strony deala
+    content = store.db.execute("SELECT content FROM raw").fetchone()["content"]
+    assert "截止" in content

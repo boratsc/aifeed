@@ -8,6 +8,8 @@ import feedparser
 import httpx
 from bs4 import BeautifulSoup
 
+from .sources import PROMO_SOURCES
+
 # Część chińskich feedów (QbitAI) zwraca 403 bez nagłówka przeglądarki.
 _UA = "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0"
 
@@ -62,9 +64,10 @@ def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts:
         title = item.get("title") or ""
         if title.strip().lower().startswith("[ainews]"):
             continue  # Latent Space tygodniowy digest: kilka newsów w jednym wpisie
-        if not item["content"] or len(item["content"]) < 40:
-            # RSS bez/prawie bez treści (HF, blog.google, HN=link "Comments"):
-            # dociągnij pełny tekst strony, inaczej redaktor dostaje sam tytuł.
+        is_promo = item.get("source_id") in PROMO_SOURCES
+        if not is_promo and (not item["content"] or len(item["content"]) < 600):
+            # RSS bez/prawie bez treści (HF, blog.google, HN=link "Comments",
+            # zajawki <600ch): news potrzebuje pełnego tekstu, promocje zostawiamy.
             try:
                 resp = client.get(item["url"], timeout=20, follow_redirects=True)
                 resp.raise_for_status()
@@ -73,8 +76,8 @@ def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts:
                 item["content"] = text + ("\n\n" + "\n\n".join(figures) if figures else "")
             except httpx.HTTPError:
                 pass
-        if len(item["content"]) < 40:
-            item["content"] = item["title"]
+        if len(item["content"]) < 40 and not is_promo:
+            item["content"] = item["title"]  # news bez treści: fallback do tytułu
         before = store.db.total_changes
         store.upsert_raw(item["source_id"], item["url"], item["title"], published_at, item["content"], item.get("og_image"))
         inserted += store.db.total_changes - before
