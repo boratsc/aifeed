@@ -6,6 +6,7 @@ from urllib.parse import urljoin, urlsplit
 
 import feedparser
 import httpx
+import time
 from bs4 import BeautifulSoup
 
 from .sources import PROMO_SOURCES
@@ -114,12 +115,18 @@ def fetch_sources(client: httpx.Client, sources: dict[str, str]) -> tuple[list[d
 
 
 def fetch_feed(client: httpx.Client, url: str) -> list[dict]:
-    try:
-        response = client.get(url, timeout=20, follow_redirects=True, headers={"User-Agent": _UA})
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        raise FetchError(f"failed to fetch feed: {exc}") from exc
-    return parse_feed(response.content)
+    last = None
+    for attempt in range(3):
+        try:
+            response = client.get(url, timeout=20, follow_redirects=True, headers={"User-Agent": _UA})
+            response.raise_for_status()
+            return parse_feed(response.content)
+        except (httpx.ConnectError, httpx.ReadError) as exc:
+            last = exc
+            time.sleep(0.5 * (attempt + 1))
+        except httpx.HTTPError as exc:
+            raise FetchError(f"failed to fetch feed: {exc}") from exc
+    raise FetchError(f"failed to fetch feed after retries: {last}") from last
 
 
 def parse_hf_models(models: list[dict]) -> list[dict]:

@@ -371,3 +371,35 @@ def test_ingest_does_not_backfill_promo_sources():
     assert calls == ["https://aitkradar.cn/deals.xml"]  # brak fetchu strony deala
     content = store.db.execute("SELECT content FROM raw").fetchone()["content"]
     assert "截止" in content
+
+
+def test_fetch_feed_retries_transient_ssl_error():
+    import aifeed.fetch as fetch
+    import httpx
+    calls = {"n": 0}
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectError("SSL: UNEXPECTED_EOF_WHILE_READING")
+        body = b"<?xml version='1.0'?><rss version='2.0'><channel><title>f</title><item><title>T</title><link>https://x/1</link><pubDate>Fri, 21 Nov 2026 00:00:00 GMT</pubDate><description>d</description></item></channel></rss>"
+        return httpx.Response(200, content=body, request=httpx.Request("GET", "https://x/feed"))
+    monkeypatch_time = None
+    import time as _t
+    real_sleep = _t.sleep
+    class FakeClient:
+        def get(self, url, **kw):
+            return handler(url)
+    # patch httpx.Client + sleep
+    import types
+    # simpler: monkeypatch fetch.time.sleep
+    slept = []
+    orig = getattr(fetch, "time", None)
+    fetch.time = types.SimpleNamespace(sleep=lambda s: slept.append(s))
+    try:
+        items = fetch.fetch_feed(FakeClient(), "https://x/feed")
+    finally:
+        if orig is not None:
+            fetch.time = orig
+    assert len(items) == 1
+    assert calls["n"] == 2
+    assert slept
