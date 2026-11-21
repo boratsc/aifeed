@@ -59,9 +59,12 @@ def test_candidate_matches_uses_similarity_and_keeps_best_first():
 
 
 def test_candidate_matches_rejects_different_dimensions():
-    try:
-        candidate_matches([1.0, 0.0], [(1, [1.0])], 0.86)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("mismatched dimensions accepted")
+    # nie crashuje; pomija kandydatów z niezgodnym wymiarem (stub [1.0])
+    assert candidate_matches([1.0, 0.0], [(1, [1.0])], 0.86) == []
+
+
+def test_candidate_matches_skips_mismatched_dimensions():
+    from aifeed.dedup import candidate_matches
+    query = [1.0, 0.0, 0.0]
+    embeddings = [(1, [1.0]), (2, [1.0, 0.0, 0.0])]  # id1 ma dim=1 (stub), id2 pasuje
+    assert candidate_matches(query, embeddings, 0.9) == [(2, 1.0)]

@@ -47,5 +47,9 @@ def validate_decision(decision, article_ids):
 
 
 def candidate_matches(vector, embeddings, threshold):
-    matches = [(article_id, cosine(vector, existing)) for article_id, existing in embeddings]
+    matches = []
+    for article_id, existing in embeddings:
+        if len(existing) != len(vector):
+            continue  # stub nie-embedding (np. ręcznie zapisany [1.0]); pomiń, nie crash
+        matches.append((article_id, cosine(vector, existing)))
     return sorted((item for item in matches if item[1] >= threshold), key=lambda item: item[1], reverse=True)
