@@ -417,3 +417,16 @@ def test_extract_article_text_falls_back_to_longest_content_element():
             b"<div id='art'><p>Glowna dluga tresc artykulu, ktorej nie ma zadnego znanego selektora.</p></div></body></html>")
     out = extract_article_text(html)
     assert "Glowna dluga tresc" in out
+
+
+def test_extract_article_images_resolves_relative_src():
+    from aifeed.fetch import extract_article_images
+    html = b"<html><body><div class='markdown-body'><img src='docs/images/opening.png' alt='Opening screen'></div></body></html>"
+    assert extract_article_images(html, base_url="http://ricapar.net/ClawDOS/") == \
+        ["![Opening screen](http://ricapar.net/ClawDOS/docs/images/opening.png)"]
+
+
+def test_extract_article_images_keeps_http_src():
+    from aifeed.fetch import extract_article_images
+    html = b"<div class='markdown-body'><img src='https://x/y.png' alt='A'></div>"
+    assert extract_article_images(html) == ["![A](https://x/y.png)"]
