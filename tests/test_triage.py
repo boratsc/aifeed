@@ -64,8 +64,10 @@ def test_validate_triage_accepts_only_known_unique_ids():
 
 
 def test_validate_triage_rejects_unknown_category():
-    with pytest.raises(ValueError):
-        validate_triage([{"raw_id": 1, "relevant": True, "category": "other", "summary_pl": "X"}], {1})
+    # nieznana kategoria nie zabija batcha; item jest potraktowany jako nieistotny
+    out = validate_triage([{"raw_id": 1, "relevant": True, "category": "other", "summary_pl": "X"}], {1})
+    assert out[0]["relevant"] is False
+    assert out[0]["category"] is None
 
 
 def test_validate_triage_accepts_irrelevant_without_category():
@@ -111,3 +113,24 @@ def test_news_sources_keep_model_category():
     from aifeed.store import RawItem
     r = RawItem(1, "openai", "https://x", "News", 1.0, "c", None)
     assert triage.resolve_category("modele", r.source_id) == "modele"
+
+
+def test_resolve_category_maps_agenci_to_narzedzia():
+    import aifeed.triage as triage
+    assert triage.resolve_category("agenci", "openai") == "narzedzia"
+
+
+def test_resolve_category_maps_agent_synonyms():
+    import aifeed.triage as triage
+    for syn in ("agenci", "agenty", "agent", "narzedzie"):
+        assert triage.resolve_category(syn, "openai") == "narzedzia", syn
+
+
+def test_validate_triage_drops_unknown_category_instead_of_crashing():
+    from aifeed.triage import validate_triage
+    out = validate_triage(
+        [{"raw_id": 1, "relevant": True, "category": "totally_unknown_xyz", "summary_pl": "x"}],
+        {1}, {1: "openai"})
+    # nie crashuje; nieznana kategoria -> relevant False
+    assert out[0]["relevant"] is False
+    assert out[0]["category"] is None

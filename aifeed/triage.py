@@ -1,6 +1,7 @@
 """Validation for LLM news classification."""
 
 import json
+import logging
 
 from .llm import chat, clean_pl
 
@@ -47,7 +48,18 @@ def classify_batch(settings, items):
 CATEGORIES = {"modele", "narzedzia", "open-source", "cenniki", "badania", "infrastruktura", "promocje"}
 
 # Typowe literówki/francuskie warianty słabych modeli (np. "modeles" zamiast "modele").
-_CATEGORY_ALIASES = {"modeles": "modele", "models": "modele", "narzedzia": "narzedzia"}
+# Model potrafi wymyślić synonim zamiast użyć narzuconego słownika.
+_CATEGORY_ALIASES = {
+    "modeles": "modele", "models": "modele", "model": "modele",
+    "narzedzia": "narzedzia", "narzedzie": "narzedzia",
+    "agenci": "narzedzia", "agenty": "narzedzia", "agent": "narzedzia", "agencik": "narzedzia", "agenty": "narzedzia",
+    "tools": "narzedzia", "narzedzie_": "narzedzia",
+    "open_source": "open-source", "opensource": "open-source", "open_source": "open-source",
+    "ceny": "cenniki", "cennik": "cenniki", "pricing": "cenniki",
+    "badanie": "badania", "research": "badania",
+    "infra": "infrastruktura",
+    "promocja": "promocje", "promo": "promocje", "deals": "promocje",
+}
 
 
 def resolve_category(category: str | None, source_id: str) -> str | None:
@@ -81,7 +93,11 @@ def validate_triage(results: list[dict], expected_ids: set[int], source_by_id: d
         if relevant:
             item["category"] = resolve_category(item["category"], source_by_id.get(raw_id, ""))
             if item["category"] not in CATEGORIES:
-                raise ValueError("unknown category")
+                # nieznana kategoria (model wymyślił token spoza słownika): nie zabijaj
+                # całego batcha, potraktuj jako nieistotny.
+                logging.warning("triage unknown category %r for raw %s", item["category"], raw_id)
+                item["relevant"] = False
+                item["category"] = None
         elif item["category"] is not None:
             raise ValueError("irrelevant item category must be null")
         if not isinstance(item.get("summary_pl"), str):
