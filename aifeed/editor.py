@@ -158,10 +158,43 @@ def parse_article(raw: str) -> dict:
     raw = _strip_fence(raw)
     if BODY_DELIMITER in raw:
         header, body = raw.split(BODY_DELIMITER, 1)
-        meta = json.loads(_strip_fence(header))
+        meta = _json_first(header)
         meta["body_pl"] = body.strip()
         return meta
-    return json.loads(_strip_fence(raw))
+    return _json_first(raw)
+
+
+def _json_first(s: str) -> dict:
+    """Parsuj pierwszy obiekt JSON w stringu; ignoruj trailing tekst (modele
+    potrafią dodać komentarz za JSON)."""
+    s = s.strip()
+    i = 0
+    while i < len(s):
+        if s[i] == "{":
+            depth = 0
+            in_str = False
+            esc = False
+            for j in range(i, len(s)):
+                c = s[j]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif c == "\\":
+                        esc = True
+                    elif c == '"':
+                        in_str = False
+                else:
+                    if c == '"':
+                        in_str = True
+                    elif c == "{":
+                        depth += 1
+                    elif c == "}":
+                        depth -= 1
+                        if depth == 0:
+                            return json.loads(s[i:j + 1])
+            break
+        i += 1
+    raise ValueError("no JSON object found")
 
 
 def edit_article(settings, materials, sources):

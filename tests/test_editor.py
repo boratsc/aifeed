@@ -455,3 +455,19 @@ def test_edit_article_retries_when_cjk_leaks_to_body(monkeypatch):
     assert result["body_pl"] == "Alibaba Cloud promo"
     assert len(calls) == 2
     assert "阿里云" in calls[1]
+
+
+def test_parse_article_tolerates_trailing_content_after_json():
+    from aifeed.editor import parse_article
+    raw = '{"title_pl":"T","lead_pl":"L","body_pl":"B","category":"modele","bench":null,"promo":false}\n\njakiś śmieć za JSON'
+    a = parse_article(raw)
+    assert a["title_pl"] == "T"
+    assert a["body_pl"] == "B"
+
+
+def test_parse_article_delimiter_with_trailing_junk_in_header():
+    from aifeed.editor import parse_article
+    raw = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false} extra\n\n---BODY---\n\nB'
+    a = parse_article(raw)
+    assert a["title_pl"] == "T"
+    assert a["body_pl"] == "B"
