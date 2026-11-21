@@ -403,3 +403,17 @@ def test_fetch_feed_retries_transient_ssl_error():
     assert len(items) == 1
     assert calls["n"] == 2
     assert slept
+
+
+def test_extract_article_text_reads_markdown_body():
+    from aifeed.fetch import extract_article_text
+    html = b"<html><body><div class='markdown-body'><p>Prawdziwa tresc README z Githuba.</p><p>Drugi akapit z faktami.</p></div></body></html>"
+    assert "Prawdziwa tresc README" in extract_article_text(html)
+
+
+def test_extract_article_text_falls_back_to_longest_content_element():
+    from aifeed.fetch import extract_article_text
+    html = (b"<html><body><div id='nav'>menu</div>"
+            b"<div id='art'><p>Glowna dluga tresc artykulu, ktorej nie ma zadnego znanego selektora.</p></div></body></html>")
+    out = extract_article_text(html)
+    assert "Glowna dluga tresc" in out

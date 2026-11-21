@@ -20,20 +20,28 @@ class FetchError(Exception):
 
 
 def extract_article_text(data: bytes) -> str:
-    """Best-effort full-text extraction: .prose (HF) > article > .article (qbitai) > main."""
+    """Best-effort full-text extraction: znane selektory, potem najdłuższy węzeł treściowy."""
     soup = BeautifulSoup(data, "html.parser")
-    for selector in (".prose", "article", ".article", "main"):
+    for selector in (".prose", "article", ".article", ".markdown-body", "main"):
         el = soup.select_one(selector)
         if el:
             return el.get_text(" ", strip=True)
-    return ""
+    # Generic fallback: najdłuższy element treściowy (bez nawigacji/script/style).
+    best = ""
+    for el in soup.find_all(["div", "section", "article"]):
+        if el.name in ("script", "style"):
+            continue
+        text = el.get_text(" ", strip=True)
+        if len(text) > len(best):
+            best = text
+    return best
 
 
 def extract_article_images(data: bytes) -> list[str]:
     """Figury/wykresy jako Markdown ![](url); pomija awatary i nie-bezpieczne URL."""
     soup = BeautifulSoup(data, "html.parser")
     out = []
-    for selector in (".prose", "article", ".article", "main"):
+    for selector in (".prose", "article", ".article", ".markdown-body", "main"):
         el = soup.select_one(selector)
         if el:
             break
