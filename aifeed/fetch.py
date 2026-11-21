@@ -20,9 +20,9 @@ class FetchError(Exception):
 
 
 def extract_article_text(data: bytes) -> str:
-    """Best-effort full-text extraction: .prose (HF/blog) > article > main."""
+    """Best-effort full-text extraction: .prose (HF) > article > .article (qbitai) > main."""
     soup = BeautifulSoup(data, "html.parser")
-    for selector in (".prose", "article", "main"):
+    for selector in (".prose", "article", ".article", "main"):
         el = soup.select_one(selector)
         if el:
             return el.get_text(" ", strip=True)
@@ -33,7 +33,7 @@ def extract_article_images(data: bytes) -> list[str]:
     """Figury/wykresy jako Markdown ![](url); pomija awatary i nie-bezpieczne URL."""
     soup = BeautifulSoup(data, "html.parser")
     out = []
-    for selector in (".prose", "article", "main"):
+    for selector in (".prose", "article", ".article", "main"):
         el = soup.select_one(selector)
         if el:
             break
