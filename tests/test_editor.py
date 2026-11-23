@@ -14,7 +14,7 @@ def test_invalid_article_does_not_block_other_groups(tmp_path, monkeypatch):
     def edit(settings, materials, sources):
         if materials[0]["id"] == ids[0]:
             raise ValueError("article exceeds 6000 words")
-        return {"title_pl": "Dobry", "lead_pl": "L", "body_pl": "B", "category": "modele", "sources": sources}
+        return {"title_pl": "Dobry", "lead_pl": "L", "body_pl": "Prawdziwa tresc artykulu o faktach.", "category": "modele", "sources": sources}
     monkeypatch.setattr(editor, "edit_article", edit)
     monkeypatch.setattr(editor, "classify_candidate", lambda *args: {"verdict": "new", "article_id": None, "embedding": [1.0]})
     assert editor.run(Settings(), store) == 1
@@ -45,7 +45,7 @@ def test_extension_creates_delta_article_with_backlink(tmp_path, monkeypatch):
     raw_id = store.upsert_raw("s", "https://example.org/2", "Nowe", 1000.0, "Nowe fakty", None)
     store.db.execute("UPDATE raw SET triaged=1,relevant=1,category='modele',summary_pl='Nowe fakty' WHERE id=?", (raw_id,))
     store.db.commit()
-    article = {"title_pl": "Nowe wyniki", "lead_pl": "Lead", "body_pl": "Tylko nowości", "category": "modele"}
+    article = {"title_pl": "Nowe wyniki", "lead_pl": "Lead", "body_pl": "Tylko nowosci i fakty z kolejnych badan.", "category": "modele"}
     monkeypatch.setattr(editor, "group_materials", lambda *args: [[raw_id]])
     monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**article, "sources": sources})
     monkeypatch.setattr(editor, "classify_candidate", lambda *args: {"verdict": "extension", "article_id": parent, "embedding": [0.9, 0.1]})
@@ -59,7 +59,7 @@ def test_run_creates_one_article_for_group(tmp_path, monkeypatch):
     raw_id = store.upsert_raw("source", "https://example.org/1", "T", 1000.0, "Facts", None)
     store.db.execute("UPDATE raw SET triaged=1,relevant=1,category='modele',summary_pl='Podsumowanie' WHERE id=?", (raw_id,))
     store.db.commit()
-    output = {"title_pl": "Artykuł", "lead_pl": "Lead", "body_pl": "Treść", "category": "modele"}
+    output = {"title_pl": "Artykuł", "lead_pl": "Lead", "body_pl": "Prawdziwa tresc artykulu o faktach.", "category": "modele"}
     monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[raw_id]])
     monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**output, "sources": sources})
     monkeypatch.setattr(editor, "classify_candidate", lambda settings, store, candidate: {"verdict": "new", "article_id": None, "embedding": [1.0, 0.0]})
@@ -71,7 +71,7 @@ def test_run_creates_one_article_for_group(tmp_path, monkeypatch):
 def test_save_new_article_creates_unique_slugs(tmp_path):
     import aifeed.editor as editor
     store = Store(str(tmp_path / "db"))
-    article = {"title_pl": "T", "lead_pl": "L", "body_pl": "B", "category": "modele", "sources": [{"name": "S", "url": "https://example.org"}]}
+    article = {"title_pl": "T", "lead_pl": "L", "body_pl": "Prawdziwa tresc artykulu o faktach.", "category": "modele", "sources": [{"name": "S", "url": "https://example.org"}]}
     first = save_new_article(store, article, [1.0, 0.0], 1000.0)
     second = save_new_article(store, article, [1.0, 0.0], 1000.0)
     assert store.article_by_slug("t").id == first
@@ -102,7 +102,7 @@ def test_group_materials_keeps_complete_partition(monkeypatch):
 def test_edit_article_keeps_all_input_sources(monkeypatch):
     import aifeed.editor as editor
     sources = [{"name": "A", "url": "https://a.example/1"}, {"name": "B", "url": "https://b.example/2"}]
-    output = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nB'
+    output = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nPrawdziwa tresc artykulu o faktach.'
     monkeypatch.setattr(editor, "chat", lambda *args, **kw: output)
     result = edit_article(Settings(), [{"title": "News", "content": "Facts", "url": sources[1]["url"], "source_id": "B"}], sources)
     assert result["sources"] == sources
@@ -113,7 +113,7 @@ def test_overlong_article_is_shortened_by_editor(monkeypatch):
     import aifeed.editor as editor
     sources = [{"name": "S", "url": "https://example.org"}]
     long = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\n' + " ".join(["słowo"] * 6001)
-    short = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nKrótka treść.'
+    short = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nKrotka ale prawdziwa tresc artykulu.'
     responses = iter([long, short])
     calls = []
     def fake_chat(settings, model, system, user, **kw):
@@ -121,7 +121,7 @@ def test_overlong_article_is_shortened_by_editor(monkeypatch):
         return next(responses)
     monkeypatch.setattr(editor, "chat", fake_chat)
     result = editor.edit_article(Settings(), [{"title": "T"}], sources)
-    assert result["body_pl"] == "Krótka treść."
+    assert result["body_pl"] == "Krotka ale prawdziwa tresc artykulu."
     assert len(calls) == 2
     assert "5000" in calls[1]
 
@@ -144,7 +144,7 @@ def test_editor_prompt_demands_faithful_translation(monkeypatch):
     captured = {}
     def fake_chat(settings, model, system, user, **kw):
         captured["system"] = system
-        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nB'
+        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nPrawdziwa tresc artykulu o faktach.'
     monkeypatch.setattr(editor, "chat", fake_chat)
     editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
     assert "Przetłumacz" in captured["system"]
@@ -152,13 +152,13 @@ def test_editor_prompt_demands_faithful_translation(monkeypatch):
 
 
 def test_validate_article_requires_source_and_text():
-    article = {"title_pl": "Tytuł", "lead_pl": "Lead.", "body_pl": "Treść.",
+    article = {"title_pl": "Tytuł", "lead_pl": "Lead.", "body_pl": "Prawdziwa tresc artykulu o faktach.",
                "category": "modele", "sources": [{"name": "Źródło", "url": "https://example.org/1"}]}
     assert validate_article(article) == article
 
 
 def test_validate_article_rejects_unsafe_sources_and_empty_text():
-    article = {"title_pl": "T", "lead_pl": "L", "body_pl": "B", "category": "modele",
+    article = {"title_pl": "T", "lead_pl": "L", "body_pl": "Prawdziwa tresc artykulu o faktach.", "category": "modele",
                "sources": [{"name": "Źródło", "url": "javascript:alert(1)"}]}
     with pytest.raises(ValueError):
         validate_article(article)
@@ -191,7 +191,7 @@ def test_editor_prompt_forbids_narrating_compliance(monkeypatch):
     captured = {}
     def fake_chat(settings, model, system, user, **kw):
         captured["system"] = system
-        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nB'
+        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nPrawdziwa tresc artykulu o faktach.'
     monkeypatch.setattr(editor, "chat", fake_chat)
     editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
     assert "Nie wspominaj o ich braku" in captured["system"]
@@ -245,7 +245,7 @@ def test_stale_running_group_is_retried(tmp_path, monkeypatch):
     store.mark_running(key)
     store.db.execute("UPDATE editor_job SET started_at = started_at - 99999, updated_at = updated_at - 99999")
     store.db.commit()
-    output = {"title_pl": "Artykuł", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    output = {"title_pl": "Artykuł", "lead_pl": "L", "body_pl": "Prawdziwa tresc artykulu o faktach.", "category": "modele"}
     monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**output, "sources": sources})
     monkeypatch.setattr(editor, "classify_candidate", lambda *a: {"verdict": "new", "article_id": None, "embedding": [1.0]})
     assert editor.run(Settings(), store) == 1
@@ -263,7 +263,7 @@ def test_failed_group_is_retried_next_run(tmp_path, monkeypatch):
     assert editor.run(Settings(), store) == 0
     assert store.job(key)["state"] == "failed"
     assert [item["id"] for item in store.relevant_candidates()] == [raw_id]
-    output = {"title_pl": "Artykuł", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    output = {"title_pl": "Artykuł", "lead_pl": "L", "body_pl": "Prawdziwa tresc artykulu o faktach.", "category": "modele"}
     monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**output, "sources": sources})
     monkeypatch.setattr(editor, "classify_candidate", lambda *a: {"verdict": "new", "article_id": None, "embedding": [1.0]})
     assert editor.run(Settings(), store) == 1
@@ -275,7 +275,7 @@ def test_same_verdict_marks_processed(tmp_path, monkeypatch):
     store, raw_id = _one_candidate(tmp_path)
     monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[raw_id]])
     aid = store.add_article("a", "A", "L", "B", "modele", [{"name": "S", "url": "https://example.org"}], None, None, [1.0], 900.0, None)
-    output = {"title_pl": "A", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    output = {"title_pl": "A", "lead_pl": "L", "body_pl": "Prawdziwa tresc artykulu o faktach.", "category": "modele"}
     monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**output, "sources": sources})
     monkeypatch.setattr(editor, "classify_candidate", lambda *a: {"verdict": "same", "article_id": aid, "embedding": [1.0]})
     assert editor.run(Settings(), store) == 0
@@ -294,7 +294,7 @@ def test_run_uses_configured_concurrency(tmp_path, monkeypatch):
             captured["max_workers"] = kwargs.get("max_workers")
             super().__init__(*args, **kwargs)
     monkeypatch.setattr(editor, "ThreadPoolExecutor", CapturingExecutor)
-    output = {"title_pl": "A", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    output = {"title_pl": "A", "lead_pl": "L", "body_pl": "Prawdziwa tresc artykulu o faktach.", "category": "modele"}
     monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**output, "sources": sources})
     monkeypatch.setattr(editor, "classify_candidate", lambda *a: {"verdict": "new", "article_id": None, "embedding": [1.0]})
     settings = Settings()
@@ -306,7 +306,7 @@ def test_worker_exception_marks_failed_and_does_not_abort_run(tmp_path, monkeypa
     import aifeed.editor as editor
     store, raw_id = _one_candidate(tmp_path)
     monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[raw_id]])
-    output = {"title_pl": "A", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    output = {"title_pl": "A", "lead_pl": "L", "body_pl": "Prawdziwa tresc artykulu o faktach.", "category": "modele"}
     monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**output, "sources": sources})
     def boom(*a):
         raise RuntimeError("embed timeout")
@@ -324,7 +324,7 @@ def test_worker_heartbeat_prevents_stale_reclaim(tmp_path, monkeypatch):
     store.mark_running(key)
     store.db.execute("UPDATE editor_job SET started_at = started_at - 99999, updated_at = updated_at - 99999")
     store.db.commit()
-    output = {"title_pl": "A", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    output = {"title_pl": "A", "lead_pl": "L", "body_pl": "Prawdziwa tresc artykulu o faktach.", "category": "modele"}
     def slow_edit(settings, materials, sources):
         # praca trwa; heartbeat w trakcie ma odświeżyć updated_at (własne połączenie: test chodzi w workerze)
         row = Store(store.db_path).job(key)
@@ -343,7 +343,7 @@ def test_duplicate_titles_across_workers_do_not_crash(tmp_path, monkeypatch):
     store.db.execute("UPDATE raw SET triaged=1,relevant=1,category='modele',summary_pl='F'")
     store.db.commit()
     monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[ids[0]], [ids[1]]])
-    output = {"title_pl": "Ten sam", "lead_pl": "L", "body_pl": "B", "category": "modele"}
+    output = {"title_pl": "Ten sam", "lead_pl": "L", "body_pl": "Prawdziwa tresc artykulu o faktach.", "category": "modele"}
     monkeypatch.setattr(editor, "edit_article", lambda settings, materials, sources: {**output, "sources": sources})
     # obaj workerzy widzą pustą bazę embeddingów (snapshot przed zapisem) → obaj new
     monkeypatch.setattr(editor, "classify_candidate", lambda *a: {"verdict": "new", "article_id": None, "embedding": [1.0]})
@@ -360,7 +360,7 @@ def test_parallel_workers_write_to_one_db(tmp_path, monkeypatch):
     store.db.commit()
     monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[i] for i in ids])
     def edit(settings, materials, sources):
-        return {"title_pl": f"Art {materials[0]['id']}", "lead_pl": "L", "body_pl": "B", "category": "modele", "sources": sources}
+        return {"title_pl": f"Art {materials[0]['id']}", "lead_pl": "L", "body_pl": "Prawdziwa tresc artykulu o faktach.", "category": "modele", "sources": sources}
     monkeypatch.setattr(editor, "edit_article", edit)
     monkeypatch.setattr(editor, "classify_candidate", lambda *a: {"verdict": "new", "article_id": None, "embedding": [1.0]})
     assert editor.run(Settings(), store) == 6
@@ -374,7 +374,7 @@ def test_editor_prompt_preserves_figure_markdown(monkeypatch):
     captured = {}
     def fake_chat(settings, model, system, user, **kw):
         captured["system"] = system
-        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nB'
+        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nPrawdziwa tresc artykulu o faktach.'
     monkeypatch.setattr(editor, "chat", fake_chat)
     editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
     assert "Obrazy" in captured["system"]
@@ -402,8 +402,8 @@ def test_parse_article_body_never_needs_json_escaping():
 
 def test_parse_article_falls_back_to_full_json():
     from aifeed.editor import parse_article
-    raw = '{"title_pl":"T","lead_pl":"L","body_pl":"B","category":"modele","bench":null,"promo":false}'
-    assert parse_article(raw)["body_pl"] == "B"
+    raw = '{"title_pl":"T","lead_pl":"L","body_pl":"Prawdziwa tresc artykulu o faktach.","category":"modele","bench":null,"promo":false}'
+    assert parse_article(raw)["body_pl"] == "Prawdziwa tresc artykulu o faktach."
 
 
 def test_editor_prompt_uses_body_delimiter_not_json_body(monkeypatch):
@@ -411,19 +411,19 @@ def test_editor_prompt_uses_body_delimiter_not_json_body(monkeypatch):
     captured = {}
     def fake_chat(settings, model, system, user, **kw):
         captured["system"] = system
-        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nB'
+        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nPrawdziwa tresc artykulu o faktach.'
     monkeypatch.setattr(editor, "chat", fake_chat)
     a = editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
-    assert a["body_pl"] == "B"
+    assert a["body_pl"] == "Prawdziwa tresc artykulu o faktach."
     assert "---BODY---" in captured["system"]
     assert "JSON" in captured["system"]
 
 
 def test_validate_article_rejects_cjk_in_any_field():
     for field in ("title_pl", "lead_pl", "body_pl"):
-        a = {"title_pl": "T", "lead_pl": "L", "body_pl": "B", "category": "modele",
+        a = {"title_pl": "T", "lead_pl": "L", "body_pl": "Prawdziwa tresc artykulu o faktach.", "category": "modele",
              "sources": [{"name": "S", "url": "https://example.org"}]}
-        a[field] = "test 阿里云 test"
+        a[field] = "Prawdziwa tresc artykulu 阿里云 z faktami."
         with pytest.raises(ValueError, match="CJK"):
             validate_article(a)
 
@@ -433,7 +433,7 @@ def test_editor_prompt_forbids_cjk_and_demands_transliteration(monkeypatch):
     captured = {}
     def fake_chat(settings, model, system, user, **kw):
         captured["system"] = system
-        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nB'
+        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nPrawdziwa tresc artykulu o faktach.'
     monkeypatch.setattr(editor, "chat", fake_chat)
     editor.edit_article(Settings(), [{"title": "N"}], [{"name": "S", "url": "https://example.org"}])
     assert "chińsk" in captured["system"].lower() or "cjk" in captured["system"].lower()
@@ -443,8 +443,8 @@ def test_editor_prompt_forbids_cjk_and_demands_transliteration(monkeypatch):
 def test_edit_article_retries_when_cjk_leaks_to_body(monkeypatch):
     import aifeed.editor as editor
     sources = [{"name": "S", "url": "https://example.org"}]
-    bad = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\n阿里云 promo'
-    good = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nAlibaba Cloud promo'
+    bad = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nPromocja 阿里云 na modele dla firm.'
+    good = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nPromocja Alibaba Cloud na modele dla firm.'
     responses = iter([bad, good])
     calls = []
     def fake_chat(settings, model, system, user, **kw):
@@ -452,22 +452,30 @@ def test_edit_article_retries_when_cjk_leaks_to_body(monkeypatch):
         return next(responses)
     monkeypatch.setattr(editor, "chat", fake_chat)
     result = editor.edit_article(Settings(), [{"title": "N"}], sources)
-    assert result["body_pl"] == "Alibaba Cloud promo"
+    assert result["body_pl"] == "Promocja Alibaba Cloud na modele dla firm."
     assert len(calls) == 2
     assert "阿里云" in calls[1]
 
 
 def test_parse_article_tolerates_trailing_content_after_json():
     from aifeed.editor import parse_article
-    raw = '{"title_pl":"T","lead_pl":"L","body_pl":"B","category":"modele","bench":null,"promo":false}\n\njakiś śmieć za JSON'
+    raw = '{"title_pl":"T","lead_pl":"L","body_pl":"Prawdziwa tresc artykulu o faktach.","category":"modele","bench":null,"promo":false}\n\njakiś śmieć za JSON'
     a = parse_article(raw)
     assert a["title_pl"] == "T"
-    assert a["body_pl"] == "B"
+    assert a["body_pl"] == "Prawdziwa tresc artykulu o faktach."
 
 
 def test_parse_article_delimiter_with_trailing_junk_in_header():
     from aifeed.editor import parse_article
-    raw = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false} extra\n\n---BODY---\n\nB'
+    raw = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false} extra\n\n---BODY---\n\nPrawdziwa tresc artykulu o faktach.'
     a = parse_article(raw)
     assert a["title_pl"] == "T"
-    assert a["body_pl"] == "B"
+    assert a["body_pl"] == "Prawdziwa tresc artykulu o faktach."
+
+
+def test_validate_article_rejects_near_empty_body():
+    for body in ("##", " ", "T"):
+        article = {"title_pl": "T", "lead_pl": "L", "body_pl": body,
+                   "category": "modele", "sources": [{"name": "S", "url": "https://example.org"}]}
+        with pytest.raises(ValueError):
+            validate_article(article)

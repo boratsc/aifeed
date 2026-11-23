@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 import hashlib
+import re
 import json
 import logging
 import threading
@@ -276,6 +277,9 @@ def validate_article(article):
     for field in ("title_pl", "lead_pl", "body_pl", "category"):
         if not isinstance(article.get(field), str) or not article[field].strip():
             raise ValueError(f"{field} is required")
+    # Sam nagłówek/markup to nie treść (słabe modele zwracają np. "##").
+    if len(re.sub(r"[#\s*_`>-]", "", article["body_pl"])) < 20:
+        raise ValueError("body_pl is required")
     body_lower = article["body_pl"].lower()
     if any(pattern in body_lower for pattern in META_PATTERNS):
         raise ValueError("editorial meta-commentary in body")
