@@ -524,3 +524,27 @@ def test_short_source_short_body_is_fine(monkeypatch):
     s = Settings(editor_model="redaktor", editor_fallback_model="drugi-redaktor")
     editor.edit_article(s, [{"title": "T", "content": "Wydano 1.2.3."}], sources)
     assert calls == ["redaktor"]  # krótkie źródło = krótki artykuł OK
+
+
+def test_escalation_updates_job_model(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    store = Store(str(tmp_path / "db"))
+    raw_id = store.upsert_raw("s", "https://example.org/1", "T", 1000.0, "fakt " * 400, None)
+    store.db.execute("UPDATE raw SET triaged=1,relevant=1,category='modele',summary_pl='F'")
+    store.db.commit()
+    monkeypatch.setattr(editor, "group_materials", lambda settings, materials: [[raw_id]])
+    stub = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nKrotkie streszczenie zamiast tlumaczenia.'
+    full = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\n' + "Pelne wierne tlumaczenie z faktami. " * 40
+    models_seen = []
+    def fake_chat(settings, model, system, user, **kw):
+        models_seen.append(model)
+        editor._state_model = model  # symuluj last_model przez thread-local llm
+        import aifeed.llm as llm
+        llm._state.model = model
+        return stub if model == "redaktor" else full
+    monkeypatch.setattr(editor, "chat", fake_chat)
+    monkeypatch.setattr(editor, "classify_candidate", lambda *a: {"verdict": "new", "article_id": None, "embedding": [1.0]})
+    s = Settings(db_path=str(tmp_path / "db"), editor_model="redaktor", editor_fallback_model="drugi-redaktor")
+    assert editor.run(s, store) == 1
+    aid = store.db.execute("SELECT id FROM article").fetchone()["id"]
+    assert store.article_models()[aid] == "drugi-redaktor"
