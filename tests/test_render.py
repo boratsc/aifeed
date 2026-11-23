@@ -185,11 +185,11 @@ def test_write_site_removes_stale_article_files(tmp_path):
     assert not (output / "a" / "stary").exists()
 
 
-def test_feed_shows_ai_note_in_footer_and_under_items():
+def test_feed_shows_ai_note_only_in_footer():
     from aifeed.store import Article
     article = Article(1, "news", "T", "L", "B", "modele", [], None, None, [], 1.0, None, 1.0)
     html = render_feed([article])
-    assert html.count("Tłumaczenie AI z materiałów źródłowych") >= 2  # stopka + pod wpisem
+    assert html.count("Tłumaczenie AI z materiałów źródłowych") == 1  # tylko stopka
 
 
 def test_article_shows_ai_note_and_model_credit():
