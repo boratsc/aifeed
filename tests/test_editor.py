@@ -575,3 +575,20 @@ def test_validate_article_rejects_unclosed_code_fence():
                    "category": "modele", "sources": [{"name": "S", "url": "https://example.org"}]}
         with pytest.raises(ValueError, match="truncated"):
             validate_article(article)
+
+
+def test_edit_article_prompt_marks_research_as_merge_material(monkeypatch):
+    import aifeed.editor as editor
+    captured = {}
+    def fake_chat(settings, model, system, user, **kw):
+        captured['system'] = system
+        captured['user'] = user
+        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nPrawdziwa tresc artykulu o faktach i liczbach.'
+    monkeypatch.setattr(editor, 'chat', fake_chat)
+    materials = [
+        {'title': 'News', 'content': 'fakt ' * 300},
+        {'title': 'Research: model card', 'content': 'official 80 tokens/s decode benchmark ' * 40, 'research': True},
+    ]
+    editor.edit_article(Settings(), materials, [{'name': 'S', 'url': 'https://example.org'}])
+    assert 'research' in captured['system'].lower()
+    assert 'Research: model card' in captured['user']

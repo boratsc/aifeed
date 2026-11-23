@@ -663,3 +663,33 @@ def test_enrichment_prefers_official_domain(tmp_path, monkeypatch):
         lambda request: httpx.Response(200, content=f'<main><div class="prose"><p>{body}</p></div></main>'.encode()))))
     r = fetch.enrich_article_with_research(Settings(), store, aid, dry_run=True)
     assert r['url'] == 'https://console.upstage.ai/docs/models/solar-mini-4-5-preview'
+
+
+def test_research_materials_for_article_marks_flag(tmp_path, monkeypatch):
+    import aifeed.fetch as fetch
+    import httpx
+    from aifeed.config import Settings
+    from aifeed.store import Store
+    store = Store(str(tmp_path / 'db'))
+    aid = store.add_article('upstage', 'Upstage Solar Mini 4.5 Preview w cenniku API', 'Lead', 'Opis.', 'cenniki', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: ['https://www.upstage.ai/pricing/api'])
+    body = 'Upstage Solar Mini 4.5 Preview cached input pricing is listed here in detail. ' * 4
+    real_client = httpx.Client
+    monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, content=f'<main><div class="prose"><p>{body}</p></div></main>'.encode()))))
+    mats = fetch.research_materials(Settings(), store, aid)
+    assert len(mats) == 1
+    assert mats[0]['research'] is True
+    assert mats[0]['url'] == 'https://www.upstage.ai/pricing/api'
+    assert 'cached input pricing' in mats[0]['content']
+    assert store.article_by_id(aid).body_pl == 'Opis.'
+
+
+def test_research_materials_empty_when_nothing_matches(tmp_path, monkeypatch):
+    import aifeed.fetch as fetch
+    from aifeed.config import Settings
+    from aifeed.store import Store
+    store = Store(str(tmp_path / 'db'))
+    aid = store.add_article('j', 'Jync v2.4.5 synchronizacja komentarzy', 'Lead', 'Opis.', 'narzedzia', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: [])
+    assert fetch.research_materials(Settings(), store, aid) == []

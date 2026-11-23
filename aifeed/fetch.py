@@ -135,6 +135,31 @@ def is_relevant(article_title: str, text: str) -> bool:
     return bool(distinctive & head)
 
 
+def research_materials(settings, store, article_id: int, limit=2) -> list[dict]:
+    """Źródła uzupełniające jako materiały dla redaktora (flag research=True), nie dopisek do tekstu."""
+    article = store.article_by_id(article_id)
+    known = {s.get('url') for s in article.sources if isinstance(s, dict)}
+    candidates = [u for u in research_sources(settings, f'{article.title_pl}. {article.lead_pl}', store)
+                  if not _is_secondary_source(u) and u not in known]
+    head = {w for w in re.findall(r"[a-z0-9]{4,}", article.title_pl.lower()[:40]) if not w.isdigit()}
+    candidates.sort(key=lambda u: 0 if any(h in u.lower() for h in head) else 1)
+    out = []
+    for url in candidates:
+        if len(out) >= limit:
+            break
+        with httpx.Client() as c:
+            try:
+                resp = c.get(url, timeout=20, follow_redirects=True, headers={"User-Agent": _UA})
+                resp.raise_for_status()
+                text = extract_article_text(resp.content)
+            except httpx.HTTPError:
+                continue
+        if len(text) < 120 or not is_relevant(article.title_pl, text):
+            continue
+        out.append({'url': url, 'title': f'Research: {url}', 'content': text[:6000], 'research': True})
+    return out
+
+
 def enrich_article_with_research(settings, store, article_id: int, dry_run=False):
     """Uzupełnij artykuł treścią ze znalezionych, pasujących źródeł pierwotnych."""
     article = store.article_by_id(article_id)
