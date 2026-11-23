@@ -632,3 +632,34 @@ def test_relevance_rejects_other_product_with_shared_generic_words():
 def test_relevance_ignores_numeric_only_match():
     from aifeed.fetch import is_relevant
     assert is_relevant('Edge0-145B AutoArk laptop', 'Unrelated post about 145B and 2026 conference schedule') is False
+
+
+def test_enrichment_skips_social_links(tmp_path, monkeypatch):
+    import aifeed.fetch as fetch
+    import httpx
+    from aifeed.config import Settings
+    from aifeed.store import Store
+    store = Store(str(tmp_path / 'db'))
+    aid = store.add_article('upstage', 'Upstage Solar Mini 4.5 Preview w cenniku API', 'Lead', 'Opis.', 'cenniki', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: ['https://x.com/upstageai/status/1'])
+    body = 'Upstage Solar Mini 4.5 Preview pricing details for cached input tokens. ' * 5
+    real_client = httpx.Client
+    monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, content=f'<main><div class="prose"><p>{body}</p></div></main>'.encode()))))
+    assert fetch.enrich_article_with_research(Settings(), store, aid) is False
+
+
+def test_enrichment_prefers_official_domain(tmp_path, monkeypatch):
+    import aifeed.fetch as fetch
+    import httpx
+    from aifeed.config import Settings
+    from aifeed.store import Store
+    store = Store(str(tmp_path / 'db'))
+    aid = store.add_article('u', 'Upstage Solar Mini 4.5 Preview w cenniku API', 'Lead', 'Opis.', 'cenniki', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: ['https://randomblog.example/post', 'https://console.upstage.ai/docs/models/solar-mini-4-5-preview'])
+    body = 'Upstage Solar Mini 4.5 Preview pricing details for cached input tokens. ' * 5
+    real_client = httpx.Client
+    monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, content=f'<main><div class="prose"><p>{body}</p></div></main>'.encode()))))
+    r = fetch.enrich_article_with_research(Settings(), store, aid, dry_run=True)
+    assert r['url'] == 'https://console.upstage.ai/docs/models/solar-mini-4-5-preview'

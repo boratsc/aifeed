@@ -139,7 +139,12 @@ def enrich_article_with_research(settings, store, article_id: int, dry_run=False
     """Uzupełnij artykuł treścią ze znalezionych, pasujących źródeł pierwotnych."""
     article = store.article_by_id(article_id)
     known = {source.get('url') for source in article.sources if isinstance(source, dict)}
-    for url in research_sources(settings, f'{article.title_pl}. {article.lead_pl}', store):
+    candidates = [u for u in research_sources(settings, f'{article.title_pl}. {article.lead_pl}', store)
+                  if not _is_secondary_source(u)]
+    # Najpierw domena pasująca do nazwy z tytułu (upstage.ai dla "Upstage...").
+    head = {w for w in re.findall(r"[a-z0-9]{4,}", article.title_pl.lower()[:40]) if not w.isdigit()}
+    candidates.sort(key=lambda u: 0 if any(h in u.lower() for h in head) else 1)
+    for url in candidates:
         if url in known:
             continue
         with httpx.Client() as c:
