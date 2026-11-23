@@ -214,3 +214,12 @@ def test_write_site_passes_model_from_editor_job(tmp_path):
     output = tmp_path / "site"
     write_site(store, str(output))
     assert "gemini-3.1-flash-lite" in (output / "a" / "news" / "index.html").read_text()
+
+
+def test_article_credit_lists_all_models_in_chain():
+    from aifeed.store import Article
+    a = Article(1, 'n', 'T', 'L', 'B', 'modele', [], None, None, [], 1.0, None, 1.0)
+    html = render_article(a, model='drugi-redaktor', models=['redaktor', 'drugi-redaktor'])
+    assert 'redaktor' in html and 'drugi-redaktor' in html
+    assert 'redaktor → drugi-redaktor' in html or 'redaktor, drugi-redaktor' in html
+    assert 'Tłumaczenie AI' in html

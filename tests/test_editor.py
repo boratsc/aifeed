@@ -592,3 +592,78 @@ def test_edit_article_prompt_marks_research_as_merge_material(monkeypatch):
     editor.edit_article(Settings(), materials, [{'name': 'S', 'url': 'https://example.org'}])
     assert 'research' in captured['system'].lower()
     assert 'Research: model card' in captured['user']
+
+
+def test_group_gets_research_materials_when_source_is_thin(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    from aifeed.store import Store
+    store = Store(str(tmp_path / 'db'))
+    raw_id = store.upsert_raw('s', 'https://example.org/1', 'Thin news', 1000.0, 'krotka zajawka', None)
+    store.db.execute("UPDATE raw SET triaged=1,relevant=1,category='modele',summary_pl='F'")
+    store.db.commit()
+    captured = {}
+    monkeypatch.setattr(editor, 'group_materials', lambda settings, materials: [[raw_id]])
+    monkeypatch.setattr(editor, 'research_materials', lambda settings, store, rid: [{'source_id': 'research', 'url': 'https://official.example/doc', 'title': 'Research: x', 'content': 'official detail ' * 60, 'research': True}], raising=False)
+    def fake_edit(settings, materials, sources):
+        captured['materials'] = materials
+        return {'title_pl': 'T', 'lead_pl': 'L', 'body_pl': 'Prawdziwa tresc artykulu o faktach i liczbach.', 'category': 'modele', 'sources': sources}
+    monkeypatch.setattr(editor, 'edit_article', fake_edit)
+    monkeypatch.setattr(editor, 'classify_candidate', lambda *a: {'verdict': 'new', 'article_id': None, 'embedding': [1.0]})
+    editor.run(Settings(research_enabled=True), store)
+    assert any(m.get('research') for m in captured['materials'])
+
+
+def test_rich_source_skips_research(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    from aifeed.store import Store
+    store = Store(str(tmp_path / 'db'))
+    raw_id = store.upsert_raw('s', 'https://example.org/1', 'Rich news', 1000.0, 'pelny tekst ' * 200, None)
+    store.db.execute("UPDATE raw SET triaged=1,relevant=1,category='modele',summary_pl='F'")
+    store.db.commit()
+    captured = {}
+    monkeypatch.setattr(editor, 'group_materials', lambda settings, materials: [[raw_id]])
+    monkeypatch.setattr(editor, 'research_materials', lambda *a: (_ for _ in ()).throw(AssertionError('research for rich source')), raising=False)
+    def fake_edit(settings, materials, sources):
+        captured['materials'] = materials
+        return {'title_pl': 'T', 'lead_pl': 'L', 'body_pl': 'Prawdziwa tresc artykulu o faktach i liczbach.', 'category': 'modele'}
+    monkeypatch.setattr(editor, 'edit_article', fake_edit)
+    monkeypatch.setattr(editor, 'classify_candidate', lambda *a: {'verdict': 'new', 'article_id': None, 'embedding': [1.0]})
+    editor.run(Settings(research_enabled=True), store)
+    assert not any(m.get('research') for m in captured['materials'])
+
+
+def test_edit_article_records_all_models_used(monkeypatch):
+    import aifeed.editor as editor
+    import aifeed.llm as llm
+    stub = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nKrotkie streszczenie zamiast tlumaczenia.'
+    full = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\n' + "Pelne wierne tlumaczenie z faktami. " * 40
+    def fake_chat(settings, model, system, user, **kw):
+        llm._state.model = model
+        return stub if model == 'redaktor' else full
+    monkeypatch.setattr(editor, 'chat', fake_chat)
+    s = Settings(editor_model='redaktor', editor_fallback_model='drugi-redaktor')
+    article = editor.edit_article(s, [{'title': 'T', 'content': 'fakt ' * 400}], [{'name': 'S', 'url': 'https://example.org'}])
+    assert article['models'] == ['redaktor', 'drugi-redaktor']
+
+
+def test_edit_article_dedupes_repeated_model(monkeypatch):
+    import aifeed.editor as editor
+    import aifeed.llm as llm
+    full = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\n' + "Pelne wierne tlumaczenie z faktami. " * 40
+    def fake_chat(settings, model, system, user, **kw):
+        llm._state.model = model
+        return full
+    monkeypatch.setattr(editor, 'chat', fake_chat)
+    article = editor.edit_article(Settings(editor_model='redaktor'), [{'title': 'T', 'content': 'fakt ' * 400}], [{'name': 'S', 'url': 'https://example.org'}])
+    assert article['models'] == ['redaktor']
+
+
+def test_editor_prompt_forbids_url_paths_in_prose(monkeypatch):
+    import aifeed.editor as editor
+    captured = {}
+    def fake_chat(settings, model, system, user, **kw):
+        captured['system'] = system
+        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nPrawdziwa tresc artykulu o faktach.'
+    monkeypatch.setattr(editor, 'chat', fake_chat)
+    editor.edit_article(Settings(), [{'title': 'T'}], [{'name': 'S', 'url': 'https://example.org'}])
+    assert 'adresów URL' in captured['system']

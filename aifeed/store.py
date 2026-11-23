@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS editor_job (
     started_at REAL,
     updated_at REAL,
     article_id INTEGER,
-    model TEXT
+    model TEXT,
+    models TEXT
 );
 """
 
@@ -136,6 +137,9 @@ class Store:
         if "model" not in job_cols:
             self.db.execute("ALTER TABLE editor_job ADD COLUMN model TEXT")
             self.db.commit()
+        if "models" not in job_cols:
+            self.db.execute("ALTER TABLE editor_job ADD COLUMN models TEXT")
+            self.db.commit()
 
     def upsert_raw(self, source_id, url, title, published_at, content, og_image) -> int:
         cur = self.db.execute(
@@ -173,13 +177,14 @@ class Store:
         )
         self.db.commit()
 
-    def mark_done(self, group_key: str, article_id: int, model: str | None = None):
+    def mark_done(self, group_key: str, article_id: int, model: str | None = None, models: list[str] | None = None):
         now = time.time()
         self.db.execute(
-            "INSERT INTO editor_job (group_key, state, started_at, updated_at, article_id, model) "
-            "VALUES (?, 'done', ?, ?, ?, ?) ON CONFLICT(group_key) DO UPDATE SET "
-            "state = 'done', article_id = excluded.article_id, updated_at = excluded.updated_at, model = excluded.model",
-            (group_key, now, now, article_id, model),
+            "INSERT INTO editor_job (group_key, state, started_at, updated_at, article_id, model, models) "
+            "VALUES (?, 'done', ?, ?, ?, ?, ?) ON CONFLICT(group_key) DO UPDATE SET "
+            "state = 'done', article_id = excluded.article_id, updated_at = excluded.updated_at, "
+            "model = excluded.model, models = excluded.models",
+            (group_key, now, now, article_id, model, json.dumps(models or ([model] if model else []))),
         )
         self.db.commit()
 
@@ -213,6 +218,15 @@ class Store:
         """Który model napisał który artykuł (kredyt 'tłumaczył' na stronie)."""
         return {r["article_id"]: r["model"] for r in self.db.execute(
             "SELECT article_id, model FROM editor_job WHERE article_id IS NOT NULL AND model IS NOT NULL")}
+
+    def article_model_chain(self) -> dict[int, list[str]]:
+        """Wszystkie modele użyte przy artykule (korekta, eskalacja) - stopka redakcyjna."""
+        out = {}
+        for row in self.db.execute("SELECT article_id, model, models FROM editor_job WHERE article_id IS NOT NULL"):
+            chain = json.loads(row["models"]) if row["models"] else ([row["model"]] if row["model"] else [])
+            if chain:
+                out[row["article_id"]] = chain
+        return out
 
     def mark_failed(self, group_key: str):
         now = time.time()

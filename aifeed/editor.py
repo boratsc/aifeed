@@ -9,6 +9,7 @@ import threading
 import time
 
 from .llm import chat, clean_pl, last_model
+from .fetch import research_materials
 from .render import slugify
 from .store import Store
 from .dedup import classify_candidate
@@ -42,6 +43,14 @@ def run(settings, store):
             continue  # live claim (worker heartbeats updated_at while queued/working)
         store.mark_running(key)
         group = [by_id[item_id] for item_id in ids]
+        if settings.research_enabled and sum(len(item.get("content") or "") for item in group) < 800:
+            # Cienki materiał: dociągnij źródła pierwotne jako materiały do wkomponowania.
+            for item in group:
+                try:
+                    group = group + research_materials(settings, store, item["id"])
+                except Exception as exc:
+                    logging.warning("research failed for raw %s: %s", item["id"], exc)
+                break
         sources = [{"name": item["source_id"], "url": item["url"], "note": item["title"]} for item in group]
         image = next((item["og_image"] for item in group if item.get("og_image")), None)
         pending.append((key, group, sources, image))
@@ -79,7 +88,7 @@ def _process_group(settings, db_path, key, group, sources, image):
                 article_id = decision["article_id"]
             elif decision["verdict"] in {"new", "extension"}:
                 delta_of = decision["article_id"] if decision["verdict"] == "extension" else None
-                article_id = save_new_article(store, article, decision["embedding"], max(item["published_at"] for item in group), delta_of)
+                article_id = save_new_article(store, article, decision["embedding"], max(item.get("published_at") or 0 for item in group), delta_of)
                 count = 1
             elif decision["verdict"] == "merge":
                 article_id = decision["article_id"]
@@ -90,13 +99,14 @@ def _process_group(settings, db_path, key, group, sources, image):
             else:
                 raise ValueError("unknown editorial decision")
             for item in group:
-                store.mark_processed(item["id"])
-            store.mark_done(key, article_id, model=model)
+                if item.get("id") is not None:
+                    store.mark_processed(item["id"])
+            store.mark_done(key, article_id, model=model, models=article.get("models"))
         return count
     except Exception as exc:
         # Any failure (validation, gateway 4xx, embed timeout) must leave the
         # group visibly failed, not "running", and must not kill the whole run.
-        logging.warning("Editorial processing failed for IDs %s: %s", [item["id"] for item in group], exc)
+        logging.warning("Editorial processing failed for IDs %s: %s", [item.get("id") for item in group], exc)
         store.mark_failed(key)
         return 0
     finally:
@@ -212,6 +222,7 @@ def edit_article(settings, materials, sources):
         "Nie wspominaj o ich braku, po prostu ich nie wymieniaj. "
         "Nie opisuj procesu redakcji, klasyfikacji ani metodologii. "
         "Nie pisz zdań typu 'temat został zakwalifikowany', 'artykuł opiera się wyłącznie', 'w materiale nie zamieszczono'. "
+        "Nie odwołuj się do adresów URL ani ścieżek stron (np. pricing/api); mów 'na stronie cennika' albo 'w dokumentacji'. "
         "Pisz wyłącznie fakty o produkcie lub narzędziu. "
         "Niektóre materiały mają flagę research: to znalezione źródła uzupełniające (karta modelu, dokumentacja, cennik). "
         "Wpleć ich fakty w odpowiednie istniejące sekcje artykułu, w naturalnym polskim zdaniu i z atrybucją. "
@@ -227,7 +238,15 @@ def edit_article(settings, materials, sources):
         "bez żadnego escapowania i bez znaków JSON. "
         "body ma najwyżej " + str(MAX_WORDS) + " słów (sufit techniczny, nie cel)."
     )
+    models_used: list[str] = []
+
+    def _remember():
+        used = last_model()
+        if used and used not in models_used:
+            models_used.append(used)
+
     text = chat(settings, settings.editor_model, system, json.dumps(materials, ensure_ascii=False), json_mode=False)
+    _remember()
     article = parse_article(text)
     if not isinstance(article, dict):
         raise ValueError("editor response must be an object")
@@ -239,6 +258,7 @@ def edit_article(settings, materials, sources):
         # Model streszcza zamiast tłumaczyć: eskaluj na mocniejszy alias.
         logging.warning("editor summary-stub, escalating to %s", settings.editor_fallback_model)
         text = chat(settings, settings.editor_fallback_model, system, json.dumps(materials, ensure_ascii=False), json_mode=False)
+        _remember()
         article = parse_article(text)
         if not isinstance(article, dict):
             raise ValueError("editor response must be an object")
@@ -247,6 +267,7 @@ def edit_article(settings, materials, sources):
             if isinstance(article.get(field), str):
                 article[field] = clean_pl(article[field])
     try:
+        article["models"] = models_used
         return validate_article(article)
     except ValueError as exc:
         err = str(exc)
@@ -262,6 +283,7 @@ def edit_article(settings, materials, sources):
     prompt = json.dumps({"materials": materials, "previous_article": article,
                          "instruction": instruction}, ensure_ascii=False)
     text = chat(settings, settings.editor_model, system, prompt, json_mode=False)
+    _remember()
     article = parse_article(text)
     if not isinstance(article, dict):
         raise ValueError("editor response must be an object")
@@ -269,6 +291,7 @@ def edit_article(settings, materials, sources):
     for field in ("title_pl", "lead_pl", "body_pl"):
         if isinstance(article.get(field), str):
             article[field] = clean_pl(article[field])
+    article["models"] = models_used
     return validate_article(article)
 
 

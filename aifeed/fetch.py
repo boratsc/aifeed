@@ -156,7 +156,8 @@ def research_materials(settings, store, article_id: int, limit=2) -> list[dict]:
                 continue
         if len(text) < 120 or not is_relevant(article.title_pl, text):
             continue
-        out.append({'url': url, 'title': f'Research: {url}', 'content': text[:6000], 'research': True})
+        out.append({'id': None, 'source_id': 'research', 'url': url, 'title': f'Research: {url}',
+                    'published_at': 0, 'content': text[:6000], 'research': True})
     return out
 
 

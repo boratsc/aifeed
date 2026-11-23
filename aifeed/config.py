@@ -25,6 +25,7 @@ class Settings:
     firecrawl_key: str = ""
     firecrawl_budget: int = 800  # kredytów/mc; free plan ma 1000, zostaw zapas
     editor_fallback_model: str = ""  # eskalacja jakości: pusty = wyłączona
+    research_enabled: bool = False  # research źródeł tylko dla cienkich newsów
     sonar_key: str = ""
     sonar_budget_cents: int = 200  # limit wydatków Sonara/mc; nie wolne kredyty Firecrawla
 
@@ -52,6 +53,7 @@ class Settings:
             firecrawl_key=env.get("FIRECRAWL_KEY", ""),
             firecrawl_budget=int(env.get("FIRECRAWL_BUDGET", cls.firecrawl_budget)),
             editor_fallback_model=env.get("EDITOR_FALLBACK_MODEL", ""),
+            research_enabled=env.get("RESEARCH_ENABLED", "").lower() in {"1", "true", "yes"},
             sonar_key=env.get("SONAR_KEY", ""),
             sonar_budget_cents=int(env.get("SONAR_BUDGET_CENTS", cls.sonar_budget_cents)),
         )
