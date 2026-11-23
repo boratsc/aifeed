@@ -19,9 +19,9 @@ def run(settings, now=None):
     last = store.db.execute("SELECT MAX(finished_at) FROM run_log").fetchone()[0]
     since = last if last is not None else now - settings.backfill_days * 86400
     with httpx.Client() as client:
-        _, errors = ingest_feeds(client, store, {**RSS_SOURCES, **HTML_SOURCES, **API_SOURCES}, since)
+        _, errors = ingest_feeds(client, store, {**RSS_SOURCES, **HTML_SOURCES, **API_SOURCES}, since, settings)
         # Promocje to katalogi aktywnych ofert (pubDate = start), nie filtruj po dacie.
-        ingest_feeds(client, store, PROMO_SOURCES, 0)
+        ingest_feeds(client, store, PROMO_SOURCES, 0, settings)
         store.set_tool_versions(fetch_tool_versions(client))
     triage.run(settings, store)
     new_count = editor.run(settings, store)

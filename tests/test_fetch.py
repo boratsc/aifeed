@@ -456,3 +456,54 @@ def test_backfill_uses_oschina_api_for_spa_pages():
         ingest_feeds(client, store, {"oschina": "https://www.oschina.net/news/rss"}, 0)
     content = store.db.execute("SELECT content FROM raw").fetchone()["content"]
     assert "Pelna tresc newsa z API oschina" in content
+
+
+def test_firecrawl_scrape_returns_markdown(monkeypatch):
+    import aifeed.fetch as fetch
+    import httpx
+    from aifeed.config import Settings
+    s = Settings(firecrawl_key="fc-test", firecrawl_budget=100)
+    captured = {}
+    def handler(request):
+        captured["auth"] = request.headers.get("authorization")
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={"success": True, "data": {"markdown": "# Tytul\n\nTresc strony."}})
+    real_client = httpx.Client
+    monkeypatch.setattr(fetch.httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(handler)))
+    md = fetch.firecrawl_scrape(s, "https://example.org/spa")
+    assert md == "# Tytul\n\nTresc strony."
+    assert captured["auth"] == "Bearer fc-test"
+    assert "scrape" in captured["url"]
+
+
+def test_firecrawl_scrape_disabled_without_key():
+    import aifeed.fetch as fetch
+    from aifeed.config import Settings
+    assert fetch.firecrawl_scrape(Settings(firecrawl_key=""), "https://x") == ""
+
+
+def test_firecrawl_scrape_respects_budget():
+    import aifeed.fetch as fetch
+    from aifeed.config import Settings
+    s = Settings(firecrawl_key="fc-test", firecrawl_budget=0)
+    assert fetch.firecrawl_scrape(s, "https://x") == ""
+
+
+def test_ingest_uses_firecrawl_when_page_extraction_fails(monkeypatch):
+    import aifeed.fetch as fetch
+    import httpx
+    from aifeed.store import Store
+    import tempfile, os
+    store = Store(os.path.join(tempfile.mkdtemp(), "db"))
+    feed = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>
+    <item><title>T</title><link>https://spa.example/post</link>
+    <pubDate>Mon, 23 Nov 2026 00:00:00 GMT</pubDate></item></channel></rss>"""
+    def handler(request):
+        if str(request.url).endswith("/feed"):
+            return httpx.Response(200, content=feed)
+        return httpx.Response(200, content=b"<html><body><script>spa</script></body></html>")
+    monkeypatch.setattr(fetch, "firecrawl_scrape", lambda s, url, store=None: "Pelna tresc strony wyrenderowana przez firecrawl, dostatecznie dluga.")
+    from aifeed.config import Settings
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        fetch.ingest_feeds(client, store, {"src": "https://spa.example/feed"}, 0, Settings(firecrawl_key="fc-test"))
+    assert "wyrenderowana przez firecrawl" in store.db.execute("SELECT content FROM raw").fetchone()["content"]

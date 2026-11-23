@@ -187,6 +187,19 @@ class Store:
         self.db.execute("UPDATE editor_job SET updated_at = ? WHERE group_key = ?", (time.time(), group_key))
         self.db.commit()
 
+    def firecrawl_used_this_month(self) -> int:
+        self.db.execute("CREATE TABLE IF NOT EXISTS firecrawl_usage (month TEXT PRIMARY KEY, credits INTEGER DEFAULT 0)")
+        month = time.strftime("%Y-%m")
+        row = self.db.execute("SELECT credits FROM firecrawl_usage WHERE month = ?", (month,)).fetchone()
+        return row["credits"] if row else 0
+
+    def firecrawl_add_credit(self):
+        month = time.strftime("%Y-%m")
+        self.db.execute(
+            "INSERT INTO firecrawl_usage (month, credits) VALUES (?, 1) "
+            "ON CONFLICT(month) DO UPDATE SET credits = credits + 1", (month,))
+        self.db.commit()
+
     def article_models(self) -> dict[int, str]:
         """Który model napisał który artykuł (kredyt 'tłumaczył' na stronie)."""
         return {r["article_id"]: r["model"] for r in self.db.execute(

@@ -66,6 +66,30 @@ def extract_article_images(data: bytes, base_url: str | None = None) -> list[str
     return out
 
 
+def firecrawl_scrape(settings, url: str, store=None) -> str:
+    """Ostatnia deska: render JS przez Firecrawl (SPA/blokady). Limit kredytów/mc z bazy."""
+    if not settings.firecrawl_key:
+        return ""
+    if store is not None and store.firecrawl_used_this_month() >= settings.firecrawl_budget:
+        return ""
+    try:
+        with httpx.Client(timeout=60) as client:
+            resp = client.post(
+                "https://api.firecrawl.dev/v2/scrape",
+                headers={"Authorization": f"Bearer {settings.firecrawl_key}"},
+                json={"url": url, "formats": ["markdown"]},
+            )
+        resp.raise_for_status()
+        data = resp.json()
+        if store is not None:
+            store.firecrawl_add_credit()
+        if data.get("success"):
+            return (data.get("data") or {}).get("markdown", "") or ""
+    except (httpx.HTTPError, ValueError):
+        pass
+    return ""
+
+
 def _oschina_api_text(client: httpx.Client, url: str) -> str:
     """oschina.net to SPA (pusty HTML); treść newsa jest w ich publicznym API."""
     m = re.match(r"https?://www\.oschina\.net/news/(\d+)", url)
@@ -81,7 +105,7 @@ def _oschina_api_text(client: httpx.Client, url: str) -> str:
         return ""
 
 
-def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts: float) -> tuple[int, dict[str, str]]:
+def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts: float, settings=None) -> tuple[int, dict[str, str]]:
     items, errors = fetch_sources(client, sources)
     inserted = 0
     for item in items:
@@ -107,6 +131,11 @@ def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts:
                     item["content"] = text + ("\n\n" + "\n\n".join(figures) if figures else "")
                 except httpx.HTTPError:
                     pass
+                if settings is not None and len(item["content"] or "") < 200:
+                    # SPA/blokada: render JS przez Firecrawl (budżet kredytów pilnuje store).
+                    md = firecrawl_scrape(settings, item["url"], store)
+                    if len(md) > len(item["content"] or ""):
+                        item["content"] = md
         if len(item["content"]) < 40 and not is_promo:
             item["content"] = item["title"]  # news bez treści: fallback do tytułu
         before = store.db.total_changes

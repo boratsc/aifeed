@@ -10,7 +10,7 @@ def test_subsequent_pipeline_uses_last_success_not_backfill(tmp_path, monkeypatc
     cutoff = []
     monkeypatch.setattr(pipeline, "Store", lambda path: store)
     monkeypatch.setattr(pipeline.httpx, "Client", lambda: FakeClient())
-    monkeypatch.setattr(pipeline, "ingest_feeds", lambda client, store, sources, since: cutoff.append(since) or (0, {}))
+    monkeypatch.setattr(pipeline, "ingest_feeds", lambda client, store, sources, since, settings=None: cutoff.append(since) or (0, {}))
     monkeypatch.setattr(pipeline.triage, "run", lambda *args: 0)
     monkeypatch.setattr(pipeline.editor, "run", lambda *args: 0)
     monkeypatch.setattr(pipeline, "write_site", lambda *args, **kwargs: None)
@@ -62,7 +62,7 @@ def test_pipeline_ingests_promos_with_old_cutoff_not_news_cutoff(tmp_path, monke
     seen = []
     monkeypatch.setattr(pipeline, "Store", lambda path: store)
     monkeypatch.setattr(pipeline.httpx, "Client", lambda: FakeClient())
-    def fake_ingest(client, store, sources, since):
+    def fake_ingest(client, store, sources, since, settings=None):
         seen.append((set(sources), since))
         return (0, {})
     monkeypatch.setattr(pipeline, "ingest_feeds", fake_ingest)
