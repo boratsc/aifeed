@@ -302,9 +302,16 @@ def validate_article(article):
     if len(re.sub(r"[#\s*_`>-]", "", article["body_pl"])) < 20:
         raise ValueError("body_pl is required")
     # Urwane w pół słowa/zdania (stream cut): ostatnia linia musi kończyć się
-    # interpunkcją, albo być nagłówkiem/listą/tabelą (te nie mają kropki).
+    # interpunkcją, albo być nagłówkiem/listą/tabelą/tagami/kodem/URL-em.
     last_line = article["body_pl"].rstrip().rsplit("\n", 1)[-1].rstrip()
-    if last_line and not re.search(r"[.!?…:»\"')\]]$", last_line) and not last_line.startswith(("#", "*", "-", "|", ">", "!")):
+    ok_ending = (
+        re.search(r"[.!?…:»\"')\]]$", last_line)
+        or last_line.startswith(("#", "*", "-", "|", ">", "!"))
+        or re.match(r"(Tagi|Tags):", last_line)
+        or last_line.endswith("`")
+        or re.search(r"https?://\S+$", last_line)
+    )
+    if last_line and not ok_ending:
         raise ValueError("body_pl truncated mid-sentence")
     body_lower = article["body_pl"].lower()
     if any(pattern in body_lower for pattern in META_PATTERNS):
