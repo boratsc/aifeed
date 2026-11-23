@@ -507,3 +507,76 @@ def test_ingest_uses_firecrawl_when_page_extraction_fails(monkeypatch):
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         fetch.ingest_feeds(client, store, {"src": "https://spa.example/feed"}, 0, Settings(firecrawl_key="fc-test"))
     assert "wyrenderowana przez firecrawl" in store.db.execute("SELECT content FROM raw").fetchone()["content"]
+
+
+def test_research_uses_firecrawl_then_sonAR(monkeypatch):
+    import aifeed.fetch as fetch
+    from aifeed.config import Settings
+    calls = []
+    monkeypatch.setattr(fetch, 'firecrawl_search', lambda settings, query, store=None: calls.append('firecrawl') or ['https://facebook.com/post'])
+    monkeypatch.setattr(fetch, 'sonar_search', lambda settings, query, store=None: calls.append('sonar') or ['https://other.example/source'])
+    result = fetch.research_sources(Settings(firecrawl_key='f', sonar_key='s'), 'A news title')
+    assert result == ['https://facebook.com/post', 'https://other.example/source']
+    assert calls == ['firecrawl', 'sonar']
+
+
+def test_firecrawl_search_reads_web_urls(monkeypatch):
+    import aifeed.fetch as fetch
+    import httpx
+    from aifeed.config import Settings
+    def handle(request):
+        assert request.headers['authorization'] == 'Bearer test'
+        return httpx.Response(200, json={'data': {'web': [{'url': 'https://example.org/a'}]}})
+    real_client = httpx.Client
+    monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(handle)))
+    assert fetch.firecrawl_search(Settings(firecrawl_key='test'), 'news') == ['https://example.org/a']
+
+
+def test_sonar_search_extracts_primary_urls(monkeypatch):
+    import aifeed.fetch as fetch
+    import httpx
+    from aifeed.config import Settings
+    def handle(request):
+        return httpx.Response(200, json={'choices': [{'message': {'content': 'https://example.org/doc\nhttps://example.org/blog'}}]})
+    real_client = httpx.Client
+    monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(handle)))
+    assert fetch.sonar_search(Settings(sonar_key='test'), 'news') == ['https://example.org/doc', 'https://example.org/blog']
+
+
+def test_research_enriches_article_only_from_verified_sources(tmp_path, monkeypatch):
+    import aifeed.fetch as fetch
+    import httpx
+    from aifeed.config import Settings
+    from aifeed.store import Store
+    store = Store(str(tmp_path / 'db'))
+    aid = store.add_article('news', 'Tytul', 'Lead', 'Tresc bez benchmarku.', 'modele', [{'name': 's', 'url': 'https://example.org/'}], None, None, [], 1, None)
+    monkeypatch.setattr(fetch, 'research_sources', lambda s, q, st=None: iter(['https://official.example/doc', 'https://news.example/duplicate']))
+    def get(request, **kw):
+        if str(request.url) == 'https://official.example/doc':
+            return httpx.Response(200, content=b'<main><div class="prose"><p>Official benchmark result 1234 tokens per second, measured on the reference hardware with a reproducible configuration and published command-line flags so other people can repeat the run.</p></div></main>')
+        return httpx.Response(200, content=b'<html><body>nav only</body></html>')
+    real_client = httpx.Client
+    monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(get)))
+    s = Settings()
+    fetch.enrich_article_with_research(s, store, aid)
+    text = store.article_by_id(aid).body_pl
+    assert 'benchmark result 1234' in text
+    assert 'https://official.example/doc' in text
+    assert 'https://news.example/duplicate' not in text
+    assert text.count('---') == 1
+
+
+def test_research_calls_sonar_for_social_secondary_results(monkeypatch):
+    import aifeed.fetch as fetch
+    from aifeed.config import Settings
+    monkeypatch.setattr(fetch, 'firecrawl_search', lambda *a: ['https://x.com/status/1'])
+    monkeypatch.setattr(fetch, 'sonar_search', lambda *a: ['https://official.example/doc'])
+    assert fetch.research_sources(Settings(), 'n') == ['https://x.com/status/1', 'https://official.example/doc']
+
+
+def test_research_skips_sonar_for_primary_results(monkeypatch):
+    import aifeed.fetch as fetch
+    from aifeed.config import Settings
+    monkeypatch.setattr(fetch, 'firecrawl_search', lambda *a: ['https://official.example/doc'])
+    monkeypatch.setattr(fetch, 'sonar_search', lambda *a: (_ for _ in ()).throw(AssertionError('Sonar unnecessarily called')))
+    assert fetch.research_sources(Settings(), 'n') == ['https://official.example/doc']

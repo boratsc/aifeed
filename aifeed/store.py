@@ -200,6 +200,15 @@ class Store:
             "ON CONFLICT(month) DO UPDATE SET credits = credits + 1", (month,))
         self.db.commit()
 
+    def sonar_used_cents_this_month(self) -> float:
+        self.db.execute("CREATE TABLE IF NOT EXISTS sonar_usage (month TEXT PRIMARY KEY, cost_cents REAL DEFAULT 0)")
+        row = self.db.execute("SELECT cost_cents FROM sonar_usage WHERE month = ?", (time.strftime("%Y-%m"),)).fetchone()
+        return row["cost_cents"] if row else 0
+
+    def sonar_add_cost(self, usd: float):
+        self.db.execute("INSERT INTO sonar_usage (month, cost_cents) VALUES (?, ?) ON CONFLICT(month) DO UPDATE SET cost_cents = cost_cents + excluded.cost_cents", (time.strftime("%Y-%m"), usd * 100))
+        self.db.commit()
+
     def article_models(self) -> dict[int, str]:
         """Który model napisał który artykuł (kredyt 'tłumaczył' na stronie)."""
         return {r["article_id"]: r["model"] for r in self.db.execute(

@@ -66,6 +66,69 @@ def extract_article_images(data: bytes, base_url: str | None = None) -> list[str
     return out
 
 
+def _is_secondary_source(url: str) -> bool:
+    return any(host in url for host in ('facebook.com', 'instagram.com', 'youtube.com', 'x.com', 'twitter.com')) or '/status/' in url
+
+
+def firecrawl_search(settings, query: str, store=None) -> list[str]:
+    if not settings.firecrawl_key or (store and store.firecrawl_used_this_month() >= settings.firecrawl_budget):
+        return []
+    try:
+        with httpx.Client(timeout=45) as c:
+            r = c.post("https://api.firecrawl.dev/v2/search", headers={"Authorization": f"Bearer {settings.firecrawl_key}"}, json={"query": query, "limit": 3})
+        r.raise_for_status()
+        if store:
+            store.firecrawl_add_credit()
+        return [x["url"] for x in r.json().get("data", {}).get("web", []) if x.get("url")]
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return []
+
+
+def sonar_search(settings, query: str, store=None) -> list[str]:
+    if not settings.sonar_key or (store and store.sonar_used_cents_this_month() >= settings.sonar_budget_cents):
+        return []
+    try:
+        with httpx.Client(timeout=45) as c:
+            r = c.post("https://ai-gateway.vercel.sh/v1/chat/completions", headers={"Authorization": f"Bearer {settings.sonar_key}"}, json={"model": "perplexity/sonar", "messages": [{"role": "user", "content": "Find primary source URLs for this exact news. Output up to three direct URLs, no commentary. Do not guess URLs.\n" + query}], "max_tokens": 250})
+        r.raise_for_status()
+        d = r.json()
+        if store:
+            store.sonar_add_cost(float(d.get("usage", {}).get("cost", 0)))
+        text = d["choices"][0]["message"]["content"]
+        return re.findall(r"https?://[^\s<>\])]+", text)
+    except (httpx.HTTPError, ValueError, KeyError, IndexError):
+        return []
+
+
+def research_sources(settings, query: str, store=None) -> list[str]:
+    """Firecrawl pierwszy, Sonar uzupełnia brakujące źródła."""
+    urls = firecrawl_search(settings, query, store)
+    if not urls or any(_is_secondary_source(u) for u in urls):
+        urls += sonar_search(settings, query, store)
+    return list(dict.fromkeys(urls))
+
+
+def enrich_article_with_research(settings, store, article_id: int) -> bool:
+    """Uzupełnij artykuł treścią ze znalezionych źródeł pierwotnych."""
+    article = store.article_by_id(article_id)
+    known = {source.get('url') for source in article.sources if isinstance(source, dict)}
+    for url in research_sources(settings, f'{article.title_pl}. {article.lead_pl}', store):
+        if url in known:
+            continue
+        with httpx.Client() as c:
+            try:
+                resp = c.get(url, timeout=20, follow_redirects=True, headers={"User-Agent": _UA})
+                resp.raise_for_status()
+                text = extract_article_text(resp.content)
+            except httpx.HTTPError:
+                continue
+        if len(text) < 120:
+            continue
+        store.update_article(article_id, body_pl=f'{article.body_pl}\n\n---\n\n{url}\n\n{text}')
+        return True
+    return False
+
+
 def firecrawl_scrape(settings, url: str, store=None) -> str:
     """Ostatnia deska: render JS przez Firecrawl (SPA/blokady). Limit kredytów/mc z bazy."""
     if not settings.firecrawl_key:
