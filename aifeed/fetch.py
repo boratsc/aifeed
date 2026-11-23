@@ -66,6 +66,21 @@ def extract_article_images(data: bytes, base_url: str | None = None) -> list[str
     return out
 
 
+def _oschina_api_text(client: httpx.Client, url: str) -> str:
+    """oschina.net to SPA (pusty HTML); treść newsa jest w ich publicznym API."""
+    m = re.match(r"https?://www\.oschina\.net/news/(\d+)", url)
+    if not m:
+        return ""
+    try:
+        resp = client.get(f"https://www.oschina.net/action/apiv2/news_detail?id={m.group(1)}",
+                          timeout=15, headers={"User-Agent": _UA})
+        resp.raise_for_status()
+        body = resp.json().get("obj_data", {}).get("body", "")
+        return BeautifulSoup(body, "html.parser").get_text(" ", strip=True)
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return ""
+
+
 def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts: float) -> tuple[int, dict[str, str]]:
     items, errors = fetch_sources(client, sources)
     inserted = 0
@@ -80,14 +95,18 @@ def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts:
         if not is_promo and (not item["content"] or len(item["content"]) < 600):
             # RSS bez/prawie bez treści (HF, blog.google, HN=link "Comments",
             # zajawki <600ch): news potrzebuje pełnego tekstu, promocje zostawiamy.
-            try:
-                resp = client.get(item["url"], timeout=20, follow_redirects=True)
-                resp.raise_for_status()
-                text = extract_article_text(resp.content)
-                figures = extract_article_images(resp.content, base_url=str(resp.url))
-                item["content"] = text + ("\n\n" + "\n\n".join(figures) if figures else "")
-            except httpx.HTTPError:
-                pass
+            text = _oschina_api_text(client, item["url"])
+            if text:
+                item["content"] = text
+            else:
+                try:
+                    resp = client.get(item["url"], timeout=20, follow_redirects=True)
+                    resp.raise_for_status()
+                    text = extract_article_text(resp.content)
+                    figures = extract_article_images(resp.content, base_url=str(resp.url))
+                    item["content"] = text + ("\n\n" + "\n\n".join(figures) if figures else "")
+                except httpx.HTTPError:
+                    pass
         if len(item["content"]) < 40 and not is_promo:
             item["content"] = item["title"]  # news bez treści: fallback do tytułu
         before = store.db.total_changes

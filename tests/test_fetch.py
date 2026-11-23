@@ -430,3 +430,29 @@ def test_extract_article_images_keeps_http_src():
     from aifeed.fetch import extract_article_images
     html = b"<div class='markdown-body'><img src='https://x/y.png' alt='A'></div>"
     assert extract_article_images(html) == ["![A](https://x/y.png)"]
+
+
+def test_backfill_uses_oschina_api_for_spa_pages():
+    import httpx
+    from aifeed.fetch import ingest_feeds
+    from aifeed.store import Store
+    import tempfile, os, json
+    store = Store(os.path.join(tempfile.mkdtemp(), "db"))
+    feed = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>
+    <item><title>Genie 4</title><link>https://www.oschina.net/news/503750/google-deepmind-genie-4</link>
+    <pubDate>Mon, 23 Nov 2026 00:00:00 GMT</pubDate>
+    <description>krotka zajawka</description></item></channel></rss>"""
+    spa = b"<html><head><script src='vite.js'></script></head><body></body></html>"
+    api_body = json.dumps({"code": 1, "obj_data": {"body": "<p>Pelna tresc newsa z API oschina, dostatecznie dluga aby przejsc prog.</p>" + "<p>x</p>"*30}}).encode()
+    def handler(request):
+        u = str(request.url)
+        if "news_detail" in u:
+            assert "id=503750" in u
+            return httpx.Response(200, content=api_body)
+        if u.endswith("/rss"):
+            return httpx.Response(200, content=feed)
+        return httpx.Response(200, content=spa)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        ingest_feeds(client, store, {"oschina": "https://www.oschina.net/news/rss"}, 0)
+    content = store.db.execute("SELECT content FROM raw").fetchone()["content"]
+    assert "Pelna tresc newsa z API oschina" in content
