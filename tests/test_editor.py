@@ -479,3 +479,48 @@ def test_validate_article_rejects_near_empty_body():
                    "category": "modele", "sources": [{"name": "S", "url": "https://example.org"}]}
         with pytest.raises(ValueError):
             validate_article(article)
+
+
+def test_short_body_relative_to_source_triggers_fallback_model(monkeypatch):
+    import aifeed.editor as editor
+    sources = [{"name": "S", "url": "https://example.org"}]
+    long_source = [{"title": "T", "content": "fakt " * 400}]  # ~2000 znaków źródła
+    stub = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nKrotkie streszczenie zamiast tlumaczenia.'
+    full = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\n' + "Pelne wierne tlumaczenie z faktami. " * 40
+    calls = []
+    def fake_chat(settings, model, system, user, **kw):
+        calls.append(model)
+        return stub if model == "redaktor" else full
+    monkeypatch.setattr(editor, "chat", fake_chat)
+    s = Settings(editor_model="redaktor", editor_fallback_model="drugi-redaktor")
+    result = editor.edit_article(s, long_source, sources)
+    assert calls == ["redaktor", "drugi-redaktor"]
+    assert len(result["body_pl"].split()) > 100
+
+
+def test_good_body_does_not_trigger_fallback(monkeypatch):
+    import aifeed.editor as editor
+    sources = [{"name": "S", "url": "https://example.org"}]
+    full = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\n' + "Pelne wierne tlumaczenie z faktami. " * 40
+    calls = []
+    def fake_chat(settings, model, system, user, **kw):
+        calls.append(model)
+        return full
+    monkeypatch.setattr(editor, "chat", fake_chat)
+    s = Settings(editor_model="redaktor", editor_fallback_model="drugi-redaktor")
+    editor.edit_article(s, [{"title": "T", "content": "fakt " * 400}], sources)
+    assert calls == ["redaktor"]
+
+
+def test_short_source_short_body_is_fine(monkeypatch):
+    import aifeed.editor as editor
+    sources = [{"name": "S", "url": "https://example.org"}]
+    short = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nWydano wersje 1.2.3 z poprawkami bledow.'
+    calls = []
+    def fake_chat(settings, model, system, user, **kw):
+        calls.append(model)
+        return short
+    monkeypatch.setattr(editor, "chat", fake_chat)
+    s = Settings(editor_model="redaktor", editor_fallback_model="drugi-redaktor")
+    editor.edit_article(s, [{"title": "T", "content": "Wydano 1.2.3."}], sources)
+    assert calls == ["redaktor"]  # krótkie źródło = krótki artykuł OK

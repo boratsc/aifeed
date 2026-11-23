@@ -232,6 +232,17 @@ def edit_article(settings, materials, sources):
     for field in ("title_pl", "lead_pl", "body_pl"):
         if isinstance(article.get(field), str):
             article[field] = clean_pl(article[field])
+    if _is_summary_stub(article, materials) and settings.editor_fallback_model:
+        # Model streszcza zamiast tłumaczyć: eskaluj na mocniejszy alias.
+        logging.warning("editor summary-stub, escalating to %s", settings.editor_fallback_model)
+        text = chat(settings, settings.editor_fallback_model, system, json.dumps(materials, ensure_ascii=False), json_mode=False)
+        article = parse_article(text)
+        if not isinstance(article, dict):
+            raise ValueError("editor response must be an object")
+        article["sources"] = sources
+        for field in ("title_pl", "lead_pl", "body_pl"):
+            if isinstance(article.get(field), str):
+                article[field] = clean_pl(article[field])
     try:
         return validate_article(article)
     except ValueError as exc:
@@ -256,6 +267,16 @@ def edit_article(settings, materials, sources):
         if isinstance(article.get(field), str):
             article[field] = clean_pl(article[field])
     return validate_article(article)
+
+
+def _is_summary_stub(article, materials) -> bool:
+    """Ciało nieproporcjonalnie krótkie względem źródła = model streszcza zamiast tłumaczyć.
+    PL~EN 1:1 słów, chiński ~1.7 znaku/słowo; próg 30% łapie stuby, nie rusza krótkich źródeł."""
+    src_chars = sum(len(m.get("content") or "") for m in materials)
+    if src_chars < 800:
+        return False  # krótkie źródło = krótki artykuł jest OK
+    body_words = len((article.get("body_pl") or "").split())
+    return body_words < src_chars / 25  # ~30% oczekiwanych słów (chars/8 słów * 0.3)
 
 
 def _has_cjk(text: str) -> bool:

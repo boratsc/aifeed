@@ -24,6 +24,7 @@ class Settings:
     editor_stale_seconds: int = 1800
     firecrawl_key: str = ""
     firecrawl_budget: int = 800  # kredytów/mc; free plan ma 1000, zostaw zapas
+    editor_fallback_model: str = ""  # eskalacja jakości: pusty = wyłączona
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -48,4 +49,5 @@ class Settings:
             editor_stale_seconds=int(env.get("EDITOR_STALE_SECONDS", cls.editor_stale_seconds)),
             firecrawl_key=env.get("FIRECRAWL_KEY", ""),
             firecrawl_budget=int(env.get("FIRECRAWL_BUDGET", cls.firecrawl_budget)),
+            editor_fallback_model=env.get("EDITOR_FALLBACK_MODEL", ""),
         )
