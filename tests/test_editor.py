@@ -112,7 +112,7 @@ def test_edit_article_keeps_all_input_sources(monkeypatch):
 def test_overlong_article_is_shortened_by_editor(monkeypatch):
     import aifeed.editor as editor
     sources = [{"name": "S", "url": "https://example.org"}]
-    long = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\n' + " ".join(["słowo"] * 6001)
+    long = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\n' + " ".join(["słowo"] * 6001) + "."
     short = '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nKrotka ale prawdziwa tresc artykulu.'
     responses = iter([long, short])
     calls = []
@@ -134,7 +134,7 @@ def test_validate_article_rejects_overlong_body():
 
 
 def test_validate_article_accepts_long_faithful_translation():
-    article = {"title_pl": "T", "lead_pl": "L", "body_pl": " ".join(["słowo"] * 1500),
+    article = {"title_pl": "T", "lead_pl": "L", "body_pl": " ".join(["słowo"] * 1500) + ".",
                "category": "modele", "sources": [{"name": "S", "url": "https://example.org"}]}
     assert validate_article(article) == article
 
@@ -548,3 +548,19 @@ def test_escalation_updates_job_model(tmp_path, monkeypatch):
     assert editor.run(s, store) == 1
     aid = store.db.execute("SELECT id FROM article").fetchone()["id"]
     assert store.article_models()[aid] == "drugi-redaktor"
+
+
+def test_validate_article_rejects_mid_sentence_truncation():
+    article = {"title_pl": "T", "lead_pl": "L",
+               "body_pl": "Prawdziwa tresc artykulu o faktach i liczbach. Wiersz cennika stanowi jedyn",
+               "category": "modele", "sources": [{"name": "S", "url": "https://example.org"}]}
+    with pytest.raises(ValueError, match="truncated"):
+        validate_article(article)
+
+
+def test_validate_article_accepts_complete_ending():
+    for ending in ("Koniec zdania.", "Koniec zdania!", "Pytanie?", "## Naglowek", "* 0,40 USD za milion tokenow"):
+        article = {"title_pl": "T", "lead_pl": "L",
+                   "body_pl": "Prawdziwa tresc artykulu o faktach i liczbach.\n" + ending,
+                   "category": "modele", "sources": [{"name": "S", "url": "https://example.org"}]}
+        assert validate_article(article) == article
