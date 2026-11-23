@@ -28,7 +28,7 @@ def render_feed(articles, summary=None, next_page=None, active_category=None, to
 <footer class="footer"><span>ai:///feed © 2026 · Tłumaczenie AI z materiałów źródłowych</span><span>no tracking · no noise · just signal</span></footer></body></html>''').render(articles=articles, summary=summary, next_page=next_page, active_category=active_category, tool_versions=tool_versions)
 
 
-def render_article(article, previous=None, model=None, models=None):
+def render_article(article, previous=None, model=None, models=None, research_engines=None):
     env = Environment(autoescape=select_autoescape(["html"]))
     def safe_source(source):
         url = source.get("url")
@@ -44,11 +44,11 @@ def render_article(article, previous=None, model=None, models=None):
     return env.from_string('''<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ article.title_pl }} | ai:///feed</title>
 <style>*{box-sizing:border-box}body{margin:0;background:#0d060b;color:#fff;font:17px/1.65 system-ui,sans-serif}header{border-bottom:1px solid #33202d;padding:20px 40px}.article-layout{max-width:1120px;margin:auto;padding:40px 20px}article{max-width:760px}h1{font-size:clamp(28px,4vw,38px);line-height:1.2;font-weight:500}h2{font-size:20px;font-weight:500;margin-top:36px}.lead{color:#c9bcc5}.body{white-space:pre-wrap;overflow-wrap:anywhere}.meta{font:12px monospace;color:#9a8f97}a{color:#ff488b}a:focus-visible{outline:2px solid #ff488b;outline-offset:3px}li{margin:12px 0}.credit{float:right;font-size:11px}.body img{max-width:100%;height:auto;display:block;margin:16px 0;cursor:zoom-in}.lightbox{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:1000;cursor:zoom-out}.lightbox.open{display:flex}.lightbox img{max-width:94vw;max-height:94vh;object-fit:contain}@media(max-width:600px){header{padding:16px 20px}.article-layout{padding:28px 20px}}</style></head>
 <body><header><a href="/">ai:///feed</a>{% if credit %}<span class="meta credit">tłumaczył: {{ credit }}</span>{% endif %}</header><main class="article-layout"><a href="/">← wróć do feedu</a><article><p class="meta">{{ article.category }}</p><h1>{{ article.title_pl }}</h1><p class="lead">{{ article.lead_pl }}</p>
-<div class="body">{{ body_html | safe }}</div><p class="meta">Tłumaczenie AI z materiałów źródłowych{% if credit %} · model: {{ credit }}{% endif %}</p>{% if previous %}<section><h2>Wcześniej o tym temacie</h2>
+<div class="body">{{ body_html | safe }}</div><p class="meta">Tłumaczenie AI z materiałów źródłowych{% if credit %} · model: {{ credit }}{% endif %}{% if research_engines %} · research: {{ research_engines|join(', ') }}{% endif %}</p>{% if previous %}<section><h2>Wcześniej o tym temacie</h2>
 <a href="/a/{{ previous.slug }}">{{ previous.title_pl }}</a></section>{% endif %}
 <section><h2>Źródła</h2><ul>{% for source in sources %}
 <li><a href="{{ source.url }}" rel="noopener noreferrer">{{ source.name }}</a></li>{% endfor %}</ul></section>
-</article></main><div class="lightbox" id="lightbox"><img src="" alt=""></div><script>var lb=document.getElementById('lightbox');var lbi=lb.querySelector('img');document.querySelectorAll('.body img').forEach(function(i){i.addEventListener('click',function(){lbi.src=i.src;lbi.alt=i.alt;lb.classList.add('open');});});lb.addEventListener('click',function(){lb.classList.remove('open');});document.addEventListener('keydown',function(e){if(e.key==='Escape')lb.classList.remove('open');});</script></body></html>''').render(article=article, previous=previous, sources=sources, body_html=body_html, model=model, credit=', '.join(dict.fromkeys(models or ([model] if model else []))))
+</article></main><div class="lightbox" id="lightbox"><img src="" alt=""></div><script>var lb=document.getElementById('lightbox');var lbi=lb.querySelector('img');document.querySelectorAll('.body img').forEach(function(i){i.addEventListener('click',function(){lbi.src=i.src;lbi.alt=i.alt;lb.classList.add('open');});});lb.addEventListener('click',function(){lb.classList.remove('open');});document.addEventListener('keydown',function(e){if(e.key==='Escape')lb.classList.remove('open');});</script></body></html>''').render(article=article, previous=previous, sources=sources, body_html=body_html, model=model, credit=', '.join(dict.fromkeys(models or ([model] if model else []))), research_engines=research_engines or [])
 
 
 def _fetch_images(articles, img_dir, client):
@@ -111,11 +111,12 @@ def write_site(store, output_dir, site_url="https://ai.gradzik.org", img_dir=Non
     rss = env.from_string('''<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>ai:///feed</title><link>{{ site_url }}</link><description>Wiadomości AI dla programistów</description>{% for a in articles[:50] %}<item><title>{{ a.title_pl }}</title><link>{{ site_url }}/a/{{ a.slug }}</link><guid>{{ site_url }}/a/{{ a.slug }}</guid><description>{{ a.lead_pl }}</description><pubDate>{{ a.published_at|rssdate }}</pubDate></item>{% endfor %}</channel></rss>''').render(articles=articles, site_url=site_url.rstrip("/"))
     (output / "rss.xml").write_text(rss, encoding="utf-8")
     chain = store.article_model_chain()
+    research_engines = store.research_engines()
     for article in articles:
         previous = store.article_by_id(article.delta_of) if article.delta_of is not None else None
         article_dir = articles_dir / article.slug
         article_dir.mkdir(parents=True, exist_ok=True)
-        (article_dir / "index.html").write_text(render_article(article, previous, model=chain.get(article.id, [None])[0], models=chain.get(article.id)), encoding="utf-8")
+        (article_dir / "index.html").write_text(render_article(article, previous, model=chain.get(article.id, [None])[0], models=chain.get(article.id), research_engines=research_engines.get(article.id)), encoding="utf-8")
     # Usuń sierotki: katalogi i płaskie *.html których już nie ma w bazie (nowa struktura = katalogi).
     live_slugs = {article.slug for article in articles}
     import shutil

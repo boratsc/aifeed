@@ -48,7 +48,7 @@ def run(settings, store):
             for item in group:
                 try:
                     group = group + research_for_topic(settings, store, item["title"], item.get("summary_pl") or "",
-                                                      {m["url"] for m in group})
+                                                      {m["url"] for m in group}, article_id=article_id)
                 except Exception as exc:
                     logging.warning("research failed for raw %s: %s", item["id"], exc)
                 break

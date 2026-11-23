@@ -65,6 +65,10 @@ CREATE TABLE IF NOT EXISTS tool_version (
     tag TEXT,
     fetched_at REAL
 );
+CREATE TABLE IF NOT EXISTS research_engines (
+    article_id INTEGER PRIMARY KEY,
+    engines TEXT
+);
 CREATE TABLE IF NOT EXISTS editor_job (
     group_key TEXT PRIMARY KEY,
     state TEXT NOT NULL,
@@ -213,6 +217,15 @@ class Store:
     def sonar_add_cost(self, usd: float):
         self.db.execute("INSERT INTO sonar_usage (month, cost_cents) VALUES (?, ?) ON CONFLICT(month) DO UPDATE SET cost_cents = cost_cents + excluded.cost_cents", (time.strftime("%Y-%m"), usd * 100))
         self.db.commit()
+
+    def add_research_engines(self, article_id: int, engines: list[str]):
+        old = self.research_engines().get(article_id, [])
+        merged = list(dict.fromkeys(old + engines))
+        self.db.execute("INSERT INTO research_engines (article_id, engines) VALUES (?, ?) ON CONFLICT(article_id) DO UPDATE SET engines = excluded.engines", (article_id, json.dumps(merged)))
+        self.db.commit()
+
+    def research_engines(self) -> dict[int, list[str]]:
+        return {r["article_id"]: json.loads(r["engines"]) for r in self.db.execute("SELECT article_id, engines FROM research_engines")}
 
     def article_models(self) -> dict[int, str]:
         """Który model napisał który artykuł (kredyt 'tłumaczył' na stronie)."""

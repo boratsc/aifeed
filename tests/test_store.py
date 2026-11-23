@@ -145,3 +145,21 @@ def test_settings_editor_defaults(monkeypatch):
     assert (s.editor_concurrency, s.editor_429_retries, s.editor_stale_seconds) == (4, 4, 1800)
     monkeypatch.setenv("EDITOR_CONCURRENCY", "2")
     assert Settings.from_env().editor_concurrency == 2
+
+
+def test_research_engines_lifecycle_and_lookup(tmp_path):
+    store = Store(str(tmp_path / "db"))
+    store.add_research_engines(3, ["Firecrawl", "Sonar"])
+    assert store.research_engines()[3] == ["Firecrawl", "Sonar"]
+    store.add_research_engines(3, ["Firecrawl", "Sonar"])
+    assert store.research_engines()[3] == ["Firecrawl", "Sonar"]
+
+
+def test_existing_database_gains_research_engines(tmp_path):
+    store = Store(str(tmp_path / "db"))
+    aid = store.add_article("a", "T", "L", "B", "modele", [], None, None, [], 1.0, None)
+    store.db.execute("DROP TABLE research_engines")
+    store.db.commit()
+    reopened = Store(str(tmp_path / "db"))
+    reopened.add_research_engines(aid, ["Firecrawl"])
+    assert reopened.research_engines()[aid] == ["Firecrawl"]

@@ -515,7 +515,7 @@ def test_research_uses_firecrawl_then_sonAR(monkeypatch):
     calls = []
     monkeypatch.setattr(fetch, 'firecrawl_search', lambda settings, query, store=None: calls.append('firecrawl') or ['https://facebook.com/post'])
     monkeypatch.setattr(fetch, 'sonar_search', lambda settings, query, store=None: calls.append('sonar') or ['https://other.example/source'])
-    result = fetch.research_sources(Settings(firecrawl_key='f', sonar_key='s'), 'A news title')
+    result, _ = fetch.research_sources(Settings(firecrawl_key='f', sonar_key='s'), 'A news title')
     assert result == ['https://facebook.com/post', 'https://other.example/source']
     assert calls == ['firecrawl', 'sonar']
 
@@ -550,7 +550,7 @@ def test_research_enriches_article_only_from_verified_sources(tmp_path, monkeypa
     from aifeed.store import Store
     store = Store(str(tmp_path / 'db'))
     aid = store.add_article('news', 'Jync v2.4.5 synchronizacja komentarzy i priorytet kursorow', 'Lead', 'Tresc bez benchmarku.', 'modele', [{'name': 's', 'url': 'https://example.org/'}], None, None, [], 1, None)
-    monkeypatch.setattr(fetch, 'research_sources', lambda s, q, st=None: iter(['https://official.example/doc', 'https://news.example/duplicate']))
+    monkeypatch.setattr(fetch, 'research_sources', lambda s, q, st=None: (['https://official.example/doc', 'https://news.example/duplicate'], ['Firecrawl']))
     def get(request, **kw):
         if str(request.url) == 'https://official.example/doc':
             return httpx.Response(200, content=b'<main><div class="prose"><p>Jync v2.4.5 dodaje synchronizacje komentarzy i priorytet kursorow, poprawki dla tabel bez klucza glownego oraz komendy powtarzalnego wydania.</p></div></main>')
@@ -571,7 +571,7 @@ def test_research_calls_sonar_for_social_secondary_results(monkeypatch):
     from aifeed.config import Settings
     monkeypatch.setattr(fetch, 'firecrawl_search', lambda *a: ['https://x.com/status/1'])
     monkeypatch.setattr(fetch, 'sonar_search', lambda *a: ['https://official.example/doc'])
-    assert fetch.research_sources(Settings(), 'n') == ['https://x.com/status/1', 'https://official.example/doc']
+    assert fetch.research_sources(Settings(), 'n') == (['https://x.com/status/1', 'https://official.example/doc'], ['Firecrawl', 'Sonar'])
 
 
 def test_research_skips_sonar_for_primary_results(monkeypatch):
@@ -579,7 +579,7 @@ def test_research_skips_sonar_for_primary_results(monkeypatch):
     from aifeed.config import Settings
     monkeypatch.setattr(fetch, 'firecrawl_search', lambda *a: ['https://official.example/doc'])
     monkeypatch.setattr(fetch, 'sonar_search', lambda *a: (_ for _ in ()).throw(AssertionError('Sonar unnecessarily called')))
-    assert fetch.research_sources(Settings(), 'n') == ['https://official.example/doc']
+    assert fetch.research_sources(Settings(), 'n') == (['https://official.example/doc'], ['Firecrawl'])
 
 
 def test_research_rejects_unrelated_page(tmp_path, monkeypatch):
@@ -589,7 +589,7 @@ def test_research_rejects_unrelated_page(tmp_path, monkeypatch):
     from aifeed.store import Store
     store = Store(str(tmp_path / 'db'))
     aid = store.add_article('jync', 'Jync v2.4.5: synchronizacja komentarzy i priorytet kursorow', 'Nowe wydanie', 'Opis wydania.', 'narzedzia', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
-    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: ['https://planetmainframe.com/db2'])
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: (['https://planetmainframe.com/db2'], ['Firecrawl']))
     body = ('SQL and SQL PL enhancements in Db2 12 and 13 are described here at length for database '
             'administrators who upgrade their mainframe systems. ' * 6)
     real_client = httpx.Client
@@ -606,7 +606,7 @@ def test_research_dry_run_reports_without_writing(tmp_path, monkeypatch):
     from aifeed.store import Store
     store = Store(str(tmp_path / 'db'))
     aid = store.add_article('n', 'Jync v2.4.5 synchronizacja komentarzy i priorytet kursorow', 'Lead', 'Opis.', 'narzedzia', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
-    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: ['https://github.com/vfaner/jync/releases'])
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: (['https://github.com/vfaner/jync/releases'], ['Firecrawl']))
     body = ('Jync v2.4.5 dodaje synchronizacje komentarzy i priorytet kursorow w interfejsie, '
             'a takze poprawki dla tabel bez klucza glownego. ' * 5)
     real_client = httpx.Client
@@ -641,7 +641,7 @@ def test_enrichment_skips_social_links(tmp_path, monkeypatch):
     from aifeed.store import Store
     store = Store(str(tmp_path / 'db'))
     aid = store.add_article('upstage', 'Upstage Solar Mini 4.5 Preview w cenniku API', 'Lead', 'Opis.', 'cenniki', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
-    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: ['https://x.com/upstageai/status/1'])
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: (['https://x.com/upstageai/status/1'], ['Firecrawl']))
     body = 'Upstage Solar Mini 4.5 Preview pricing details for cached input tokens. ' * 5
     real_client = httpx.Client
     monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(
@@ -656,7 +656,7 @@ def test_enrichment_prefers_official_domain(tmp_path, monkeypatch):
     from aifeed.store import Store
     store = Store(str(tmp_path / 'db'))
     aid = store.add_article('u', 'Upstage Solar Mini 4.5 Preview w cenniku API', 'Lead', 'Opis.', 'cenniki', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
-    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: ['https://randomblog.example/post', 'https://console.upstage.ai/docs/models/solar-mini-4-5-preview'])
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: (['https://randomblog.example/post', 'https://console.upstage.ai/docs/models/solar-mini-4-5-preview'], ['Firecrawl']))
     body = 'Upstage Solar Mini 4.5 Preview pricing details for cached input tokens. ' * 5
     real_client = httpx.Client
     monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(
@@ -672,7 +672,7 @@ def test_research_materials_for_article_marks_flag(tmp_path, monkeypatch):
     from aifeed.store import Store
     store = Store(str(tmp_path / 'db'))
     aid = store.add_article('upstage', 'Upstage Solar Mini 4.5 Preview w cenniku API', 'Lead', 'Opis.', 'cenniki', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
-    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: ['https://www.upstage.ai/pricing/api'])
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: (['https://www.upstage.ai/pricing/api'], ['Firecrawl']))
     body = 'Upstage Solar Mini 4.5 Preview cached input pricing is listed here in detail. ' * 4
     real_client = httpx.Client
     monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(
@@ -691,7 +691,7 @@ def test_research_materials_empty_when_nothing_matches(tmp_path, monkeypatch):
     from aifeed.store import Store
     store = Store(str(tmp_path / 'db'))
     aid = store.add_article('j', 'Jync v2.4.5 synchronizacja komentarzy', 'Lead', 'Opis.', 'narzedzia', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
-    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: [])
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: ([], []))
     assert fetch.research_materials(Settings(), store, aid) == []
 
 
@@ -702,10 +702,10 @@ def test_research_materials_returns_multiple_relevant_sources(tmp_path, monkeypa
     from aifeed.store import Store
     store = Store(str(tmp_path / 'db'))
     aid = store.add_article('upstage', 'Upstage Solar Mini 4.5 Preview w cenniku API', 'Lead', 'Opis.', 'cenniki', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
-    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: [
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: ([
         'https://www.upstage.ai/pricing/api',
         'https://console.upstage.ai/docs/models/solar-mini-4-5-preview',
-    ])
+    ], ['Firecrawl']))
     body = 'Upstage Solar Mini 4.5 Preview pricing and model card details are documented here. ' * 3
     real_client = httpx.Client
     monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(
@@ -715,3 +715,29 @@ def test_research_materials_returns_multiple_relevant_sources(tmp_path, monkeypa
         'https://www.upstage.ai/pricing/api',
         'https://console.upstage.ai/docs/models/solar-mini-4-5-preview',
     ]
+
+
+def test_research_sources_returns_used_engines(monkeypatch):
+    import aifeed.fetch as fetch
+    from aifeed.config import Settings
+    monkeypatch.setattr(fetch, 'firecrawl_search', lambda *a, **k: ['https://example.org/doc'])
+    monkeypatch.setattr(fetch, 'sonar_search', lambda *a, **k: ['https://x.com/status/1'])
+    urls, engines = fetch.research_sources(Settings(firecrawl_key='f'), 'n')
+    assert urls == ['https://example.org/doc']
+    assert engines == ['Firecrawl']
+
+
+def test_research_engines_are_saved_for_article(tmp_path, monkeypatch):
+    import aifeed.fetch as fetch
+    import httpx
+    from aifeed.config import Settings
+    from aifeed.store import Store
+    store = Store(str(tmp_path / 'db'))
+    aid = store.add_article('u', 'Upstage Solar Mini 4.5 Preview w cenniku API', 'Lead', 'Opis.', 'cenniki', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: (['https://www.upstage.ai/pricing/api'], ['Firecrawl', 'Sonar']))
+    body = 'Upstage Solar Mini 4.5 Preview cached input pricing is listed here in detail. ' * 4
+    real_client = httpx.Client
+    monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, content=f'<main><div class="prose"><p>{body}</p></div></main>'.encode()))))
+    fetch.research_materials(Settings(), store, aid)
+    assert store.research_engines()[aid] == ['Firecrawl', 'Sonar']

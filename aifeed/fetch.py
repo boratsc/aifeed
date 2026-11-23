@@ -103,9 +103,13 @@ def sonar_search(settings, query: str, store=None) -> list[str]:
 def research_sources(settings, query: str, store=None) -> list[str]:
     """Firecrawl pierwszy, Sonar uzupełnia brakujące źródła."""
     urls = firecrawl_search(settings, query, store)
+    engines = ["Firecrawl"] if urls else []
     if not urls or any(_is_secondary_source(u) for u in urls):
-        urls += sonar_search(settings, query, store)
-    return list(dict.fromkeys(urls))
+        sonar = sonar_search(settings, query, store)
+        urls += sonar
+        if sonar:
+            engines.append("Sonar")
+    return list(dict.fromkeys(urls)), engines
 
 
 _STOP = {"the", "and", "for", "with", "from", "that", "this", "are", "was", "new", "not"}
@@ -139,11 +143,14 @@ def research_materials(settings, store, article_id: int, limit=2) -> list[dict]:
     """Źródła uzupełniające jako materiały dla redaktora (flag research=True), nie dopisek do tekstu."""
     article = store.article_by_id(article_id)
     return research_for_topic(settings, store, article.title_pl, article.lead_pl,
-                              {s.get('url') for s in article.sources}, limit)
+                              {s.get('url') for s in article.sources}, limit, article_id=article_id)
 
 
-def research_for_topic(settings, store, title, lead, known, limit=2):
-    candidates = [u for u in research_sources(settings, f'{title}. {lead}', store)
+def research_for_topic(settings, store, title, lead, known, limit=2, article_id=None):
+    urls, engines = research_sources(settings, f'{title}. {lead}', store)
+    if article_id is not None and store is not None:
+        store.add_research_engines(article_id, engines)
+    candidates = [u for u in urls
                   if not _is_secondary_source(u) and u not in known]
     head = {w for w in re.findall(r"[a-z0-9]{4,}", title.lower()[:40]) if not w.isdigit()}
     candidates.sort(key=lambda u: 0 if any(h in u.lower() for h in head) else 1)
@@ -169,7 +176,10 @@ def enrich_article_with_research(settings, store, article_id: int, dry_run=False
     """Uzupełnij artykuł treścią ze znalezionych, pasujących źródeł pierwotnych."""
     article = store.article_by_id(article_id)
     known = {source.get('url') for source in article.sources if isinstance(source, dict)}
-    candidates = [u for u in research_sources(settings, f'{article.title_pl}. {article.lead_pl}', store)
+    urls, engines = research_sources(settings, f'{article.title_pl}. {article.lead_pl}', store)
+    if store is not None:
+        store.add_research_engines(article_id, engines)
+    candidates = [u for u in urls
                   if not _is_secondary_source(u)]
     # Najpierw domena pasująca do nazwy z tytułu (upstage.ai dla "Upstage...").
     head = {w for w in re.findall(r"[a-z0-9]{4,}", article.title_pl.lower()[:40]) if not w.isdigit()}

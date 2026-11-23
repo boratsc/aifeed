@@ -223,3 +223,10 @@ def test_article_credit_lists_all_models_in_chain():
     assert 'redaktor' in html and 'drugi-redaktor' in html
     assert 'redaktor → drugi-redaktor' in html or 'redaktor, drugi-redaktor' in html
     assert 'Tłumaczenie AI' in html
+
+
+def test_article_credit_lists_research_engines():
+    from aifeed.store import Article
+    a = Article(1, 'n', 'T', 'L', 'B', 'modele', [], None, None, [], 1.0, None, 1.0)
+    html = render_article(a, model='redaktor', research_engines=['Firecrawl', 'Sonar'])
+    assert 'Firecrawl' in html and 'Sonar' in html

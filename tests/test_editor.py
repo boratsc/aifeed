@@ -603,7 +603,7 @@ def test_group_gets_research_materials_when_source_is_thin(tmp_path, monkeypatch
     store.db.commit()
     captured = {}
     monkeypatch.setattr(editor, 'group_materials', lambda settings, materials: [[raw_id]])
-    monkeypatch.setattr(editor, 'research_for_topic', lambda settings, store, title, lead, known: [{'source_id': 'research', 'url': 'https://official.example/doc', 'title': 'Research: x', 'content': 'official detail ' * 60, 'research': True}], raising=False)
+    monkeypatch.setattr(editor, 'research_for_topic', lambda settings, store, title, lead, known, article_id=None: [{'source_id': 'research', 'url': 'https://official.example/doc', 'title': 'Research: x', 'content': 'official detail ' * 60, 'research': True}], raising=False)
     def fake_edit(settings, materials, sources):
         captured['materials'] = materials
         return {'title_pl': 'T', 'lead_pl': 'L', 'body_pl': 'Prawdziwa tresc artykulu o faktach i liczbach.', 'category': 'modele', 'sources': sources}
