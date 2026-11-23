@@ -108,8 +108,20 @@ def research_sources(settings, query: str, store=None) -> list[str]:
     return list(dict.fromkeys(urls))
 
 
-def enrich_article_with_research(settings, store, article_id: int) -> bool:
-    """Uzupełnij artykuł treścią ze znalezionych źródeł pierwotnych."""
+_STOP = {"the", "and", "for", "with", "from", "that", "this", "are", "was", "new", "not"}
+
+
+def _tokens(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]{4,}", (text or "").lower()) if w not in _STOP}
+
+
+def is_relevant(article_title: str, text: str) -> bool:
+    """Strona musi dzielić z tytułem co najmniej dwa charakterystyczne słowa."""
+    return len(_tokens(article_title) & _tokens(text)) >= 2
+
+
+def enrich_article_with_research(settings, store, article_id: int, dry_run=False):
+    """Uzupełnij artykuł treścią ze znalezionych, pasujących źródeł pierwotnych."""
     article = store.article_by_id(article_id)
     known = {source.get('url') for source in article.sources if isinstance(source, dict)}
     for url in research_sources(settings, f'{article.title_pl}. {article.lead_pl}', store):
@@ -122,8 +134,10 @@ def enrich_article_with_research(settings, store, article_id: int) -> bool:
                 text = extract_article_text(resp.content)
             except httpx.HTTPError:
                 continue
-        if len(text) < 120:
+        if len(text) < 120 or not is_relevant(article.title_pl, text):
             continue
+        if dry_run:
+            return {'url': url, 'chars': len(text)}
         store.update_article(article_id, body_pl=f'{article.body_pl}\n\n---\n\n{url}\n\n{text}')
         return True
     return False

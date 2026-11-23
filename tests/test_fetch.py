@@ -549,18 +549,18 @@ def test_research_enriches_article_only_from_verified_sources(tmp_path, monkeypa
     from aifeed.config import Settings
     from aifeed.store import Store
     store = Store(str(tmp_path / 'db'))
-    aid = store.add_article('news', 'Tytul', 'Lead', 'Tresc bez benchmarku.', 'modele', [{'name': 's', 'url': 'https://example.org/'}], None, None, [], 1, None)
+    aid = store.add_article('news', 'Jync v2.4.5 synchronizacja komentarzy i priorytet kursorow', 'Lead', 'Tresc bez benchmarku.', 'modele', [{'name': 's', 'url': 'https://example.org/'}], None, None, [], 1, None)
     monkeypatch.setattr(fetch, 'research_sources', lambda s, q, st=None: iter(['https://official.example/doc', 'https://news.example/duplicate']))
     def get(request, **kw):
         if str(request.url) == 'https://official.example/doc':
-            return httpx.Response(200, content=b'<main><div class="prose"><p>Official benchmark result 1234 tokens per second, measured on the reference hardware with a reproducible configuration and published command-line flags so other people can repeat the run.</p></div></main>')
+            return httpx.Response(200, content=b'<main><div class="prose"><p>Jync v2.4.5 dodaje synchronizacje komentarzy i priorytet kursorow, poprawki dla tabel bez klucza glownego oraz komendy powtarzalnego wydania.</p></div></main>')
         return httpx.Response(200, content=b'<html><body>nav only</body></html>')
     real_client = httpx.Client
     monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(get)))
     s = Settings()
     fetch.enrich_article_with_research(s, store, aid)
     text = store.article_by_id(aid).body_pl
-    assert 'benchmark result 1234' in text
+    assert 'Jync v2.4.5 dodaje synchronizacje komentarzy' in text
     assert 'https://official.example/doc' in text
     assert 'https://news.example/duplicate' not in text
     assert text.count('---') == 1
@@ -580,3 +580,39 @@ def test_research_skips_sonar_for_primary_results(monkeypatch):
     monkeypatch.setattr(fetch, 'firecrawl_search', lambda *a: ['https://official.example/doc'])
     monkeypatch.setattr(fetch, 'sonar_search', lambda *a: (_ for _ in ()).throw(AssertionError('Sonar unnecessarily called')))
     assert fetch.research_sources(Settings(), 'n') == ['https://official.example/doc']
+
+
+def test_research_rejects_unrelated_page(tmp_path, monkeypatch):
+    import aifeed.fetch as fetch
+    import httpx
+    from aifeed.config import Settings
+    from aifeed.store import Store
+    store = Store(str(tmp_path / 'db'))
+    aid = store.add_article('jync', 'Jync v2.4.5: synchronizacja komentarzy i priorytet kursorow', 'Nowe wydanie', 'Opis wydania.', 'narzedzia', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: ['https://planetmainframe.com/db2'])
+    body = ('SQL and SQL PL enhancements in Db2 12 and 13 are described here at length for database '
+            'administrators who upgrade their mainframe systems. ' * 6)
+    real_client = httpx.Client
+    monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, content=f'<main><div class="prose"><p>{body}</p></div></main>'.encode()))))
+    assert fetch.enrich_article_with_research(Settings(), store, aid) is False
+    assert store.article_by_id(aid).body_pl == 'Opis wydania.'
+
+
+def test_research_dry_run_reports_without_writing(tmp_path, monkeypatch):
+    import aifeed.fetch as fetch
+    import httpx
+    from aifeed.config import Settings
+    from aifeed.store import Store
+    store = Store(str(tmp_path / 'db'))
+    aid = store.add_article('n', 'Jync v2.4.5 synchronizacja komentarzy i priorytet kursorow', 'Lead', 'Opis.', 'narzedzia', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: ['https://github.com/vfaner/jync/releases'])
+    body = ('Jync v2.4.5 dodaje synchronizacje komentarzy i priorytet kursorow w interfejsie, '
+            'a takze poprawki dla tabel bez klucza glownego. ' * 5)
+    real_client = httpx.Client
+    monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, content=f'<main><div class="prose"><p>{body}</p></div></main>'.encode()))))
+    result = fetch.enrich_article_with_research(Settings(), store, aid, dry_run=True)
+    assert result['url'] == 'https://github.com/vfaner/jync/releases'
+    assert result['chars'] >= 400
+    assert store.article_by_id(aid).body_pl == 'Opis.'
