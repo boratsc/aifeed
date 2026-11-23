@@ -560,7 +560,8 @@ def test_validate_article_rejects_mid_sentence_truncation():
 
 def test_validate_article_accepts_complete_ending():
     for ending in ("Koniec zdania.", "Koniec zdania!", "Pytanie?", "## Naglowek", "* 0,40 USD za milion tokenow",
-                   "Tagi: datasette, projekty", "`select json_object('a', 1)`", "Szczegoly: https://example.org/promo"):
+                   "Tagi: datasette, projekty", "`select json_object('a', 1)`", "Szczegoly: https://example.org/promo",
+                   "Zrodlo: Improved GUI testing · GIMP", "Vipul Ved Prakash\nCEO i wspolzalozyciel, Together AI", "```bash\nuv pip install localcode\n```"):
         article = {"title_pl": "T", "lead_pl": "L",
                    "body_pl": "Prawdziwa tresc artykulu o faktach i liczbach.\n" + ending,
                    "category": "modele", "sources": [{"name": "S", "url": "https://example.org"}]}

@@ -307,9 +307,11 @@ def validate_article(article):
     ok_ending = (
         re.search(r"[.!?…:»\"')\]]$", last_line)
         or last_line.startswith(("#", "*", "-", "|", ">", "!"))
-        or re.match(r"(Tagi|Tags):", last_line)
+        or re.match(r"(Tagi|Tags|Źródło|Źródła|Zrodlo|Zrodla):", last_line)
         or last_line.endswith("`")
         or re.search(r"https?://\S+$", last_line)
+        or last_line == "```"  # domknięty blok kodu
+        or re.match(r"[A-ZŁŚŻ][\wŁŚŻłśż. ]+, [\wŁŚŻłśż ]+$", last_line)  # podpis "Imię Nazwisko, Firma"
     )
     if last_line and not ok_ending:
         raise ValueError("body_pl truncated mid-sentence")
