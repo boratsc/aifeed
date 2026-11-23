@@ -566,3 +566,12 @@ def test_validate_article_accepts_complete_ending():
                    "body_pl": "Prawdziwa tresc artykulu o faktach i liczbach.\n" + ending,
                    "category": "modele", "sources": [{"name": "S", "url": "https://example.org"}]}
         assert validate_article(article) == article
+
+
+def test_validate_article_rejects_unclosed_code_fence():
+    for last_cmd in ("localcode", "```bash"):
+        article = {"title_pl": "T", "lead_pl": "L",
+                   "body_pl": "Prawdziwa tresc artykulu o faktach.\n\n```bash\nuv pip install localcode\n" + last_cmd,
+                   "category": "modele", "sources": [{"name": "S", "url": "https://example.org"}]}
+        with pytest.raises(ValueError, match="truncated"):
+            validate_article(article)
