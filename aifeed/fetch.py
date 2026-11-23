@@ -138,10 +138,14 @@ def is_relevant(article_title: str, text: str) -> bool:
 def research_materials(settings, store, article_id: int, limit=2) -> list[dict]:
     """Źródła uzupełniające jako materiały dla redaktora (flag research=True), nie dopisek do tekstu."""
     article = store.article_by_id(article_id)
-    known = {s.get('url') for s in article.sources if isinstance(s, dict)}
-    candidates = [u for u in research_sources(settings, f'{article.title_pl}. {article.lead_pl}', store)
+    return research_for_topic(settings, store, article.title_pl, article.lead_pl,
+                              {s.get('url') for s in article.sources}, limit)
+
+
+def research_for_topic(settings, store, title, lead, known, limit=2):
+    candidates = [u for u in research_sources(settings, f'{title}. {lead}', store)
                   if not _is_secondary_source(u) and u not in known]
-    head = {w for w in re.findall(r"[a-z0-9]{4,}", article.title_pl.lower()[:40]) if not w.isdigit()}
+    head = {w for w in re.findall(r"[a-z0-9]{4,}", title.lower()[:40]) if not w.isdigit()}
     candidates.sort(key=lambda u: 0 if any(h in u.lower() for h in head) else 1)
     out = []
     for url in candidates:
@@ -154,7 +158,7 @@ def research_materials(settings, store, article_id: int, limit=2) -> list[dict]:
                 text = extract_article_text(resp.content)
             except httpx.HTTPError:
                 continue
-        if len(text) < 120 or not is_relevant(article.title_pl, text):
+        if len(text) < 120 or not is_relevant(title, text):
             continue
         out.append({'id': None, 'source_id': 'research', 'url': url, 'title': f'Research: {url}',
                     'published_at': 0, 'content': text[:6000], 'research': True})

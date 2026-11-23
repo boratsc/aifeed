@@ -9,7 +9,7 @@ import threading
 import time
 
 from .llm import chat, clean_pl, last_model
-from .fetch import research_materials
+from .fetch import research_for_topic
 from .render import slugify
 from .store import Store
 from .dedup import classify_candidate
@@ -47,7 +47,8 @@ def run(settings, store):
             # Cienki materiał: dociągnij źródła pierwotne jako materiały do wkomponowania.
             for item in group:
                 try:
-                    group = group + research_materials(settings, store, item["id"])
+                    group = group + research_for_topic(settings, store, item["title"], item.get("summary_pl") or "",
+                                                      {m["url"] for m in group})
                 except Exception as exc:
                     logging.warning("research failed for raw %s: %s", item["id"], exc)
                 break

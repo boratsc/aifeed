@@ -693,3 +693,25 @@ def test_research_materials_empty_when_nothing_matches(tmp_path, monkeypatch):
     aid = store.add_article('j', 'Jync v2.4.5 synchronizacja komentarzy', 'Lead', 'Opis.', 'narzedzia', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
     monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: [])
     assert fetch.research_materials(Settings(), store, aid) == []
+
+
+def test_research_materials_returns_multiple_relevant_sources(tmp_path, monkeypatch):
+    import aifeed.fetch as fetch
+    import httpx
+    from aifeed.config import Settings
+    from aifeed.store import Store
+    store = Store(str(tmp_path / 'db'))
+    aid = store.add_article('upstage', 'Upstage Solar Mini 4.5 Preview w cenniku API', 'Lead', 'Opis.', 'cenniki', [{'name': 's', 'url': 'https://ex.org'}], None, None, [], 1, None)
+    monkeypatch.setattr(fetch, 'research_sources', lambda *a, **k: [
+        'https://www.upstage.ai/pricing/api',
+        'https://console.upstage.ai/docs/models/solar-mini-4-5-preview',
+    ])
+    body = 'Upstage Solar Mini 4.5 Preview pricing and model card details are documented here. ' * 3
+    real_client = httpx.Client
+    monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, content=f'<main><div class="prose"><p>{body}</p></div></main>'.encode()))))
+    mats = fetch.research_materials(Settings(), store, aid, limit=2)
+    assert [m['url'] for m in mats] == [
+        'https://www.upstage.ai/pricing/api',
+        'https://console.upstage.ai/docs/models/solar-mini-4-5-preview',
+    ]
