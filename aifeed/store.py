@@ -187,6 +187,11 @@ class Store:
         self.db.execute("UPDATE editor_job SET updated_at = ? WHERE group_key = ?", (time.time(), group_key))
         self.db.commit()
 
+    def article_models(self) -> dict[int, str]:
+        """Który model napisał który artykuł (kredyt 'tłumaczył' na stronie)."""
+        return {r["article_id"]: r["model"] for r in self.db.execute(
+            "SELECT article_id, model FROM editor_job WHERE article_id IS NOT NULL AND model IS NOT NULL")}
+
     def mark_failed(self, group_key: str):
         now = time.time()
         self.db.execute(

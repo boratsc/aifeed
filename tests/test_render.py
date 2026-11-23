@@ -183,3 +183,34 @@ def test_write_site_removes_stale_article_files(tmp_path):
     write_site(store, str(output))
     assert not (output / "a" / "stary" / "index.html").exists()
     assert not (output / "a" / "stary").exists()
+
+
+def test_feed_shows_ai_note_in_footer_and_under_items():
+    from aifeed.store import Article
+    article = Article(1, "news", "T", "L", "B", "modele", [], None, None, [], 1.0, None, 1.0)
+    html = render_feed([article])
+    assert html.count("Tłumaczenie AI z materiałów źródłowych") >= 2  # stopka + pod wpisem
+
+
+def test_article_shows_ai_note_and_model_credit():
+    from aifeed.store import Article
+    article = Article(1, "news", "T", "L", "B", "modele", [], None, None, [], 1.0, None, 1.0)
+    html = render_article(article, model="gemini-3.5-flash-lite")
+    assert "Tłumaczenie AI z materiałów źródłowych" in html
+    assert "gemini-3.5-flash-lite" in html
+
+
+def test_article_without_model_omits_credit():
+    from aifeed.store import Article
+    article = Article(1, "news", "T", "L", "B", "modele", [], None, None, [], 1.0, None, 1.0)
+    html = render_article(article)
+    assert "tłumaczył" not in html
+
+
+def test_write_site_passes_model_from_editor_job(tmp_path):
+    store = Store(str(tmp_path / "db"))
+    aid = store.add_article("news", "T", "L", "B", "modele", [{"name": "S", "url": "https://x"}], None, None, [], 1.0, None)
+    store.mark_done("k1", aid, model="gemini-3.1-flash-lite")
+    output = tmp_path / "site"
+    write_site(store, str(output))
+    assert "gemini-3.1-flash-lite" in (output / "a" / "news" / "index.html").read_text()
