@@ -100,7 +100,7 @@ def sonar_search(settings, query: str, store=None) -> list[str]:
         return []
 
 
-def research_sources(settings, query: str, store=None) -> list[str]:
+def research_sources(settings, query: str, store=None) -> tuple[list[str], list[str]]:
     """Firecrawl pierwszy, Sonar uzupełnia brakujące źródła."""
     urls = firecrawl_search(settings, query, store)
     engines = ["Firecrawl"] if urls else []
@@ -148,8 +148,6 @@ def research_materials(settings, store, article_id: int, limit=2) -> list[dict]:
 
 def research_for_topic(settings, store, title, lead, known, limit=2, article_id=None):
     urls, engines = research_sources(settings, f'{title}. {lead}', store)
-    if article_id is not None and store is not None:
-        store.add_research_engines(article_id, engines)
     candidates = [u for u in urls
                   if not _is_secondary_source(u) and u not in known]
     head = {w for w in re.findall(r"[a-z0-9]{4,}", title.lower()[:40]) if not w.isdigit()}
@@ -168,7 +166,7 @@ def research_for_topic(settings, store, title, lead, known, limit=2, article_id=
         if len(text) < 120 or not is_relevant(title, text):
             continue
         out.append({'id': None, 'source_id': 'research', 'url': url, 'title': f'Research: {url}',
-                    'published_at': 0, 'content': text[:6000], 'research': True})
+                    'published_at': 0, 'content': text[:6000], 'research': True, 'research_engines': engines})
     return out
 
 
@@ -177,8 +175,6 @@ def enrich_article_with_research(settings, store, article_id: int, dry_run=False
     article = store.article_by_id(article_id)
     known = {source.get('url') for source in article.sources if isinstance(source, dict)}
     urls, engines = research_sources(settings, f'{article.title_pl}. {article.lead_pl}', store)
-    if store is not None:
-        store.add_research_engines(article_id, engines)
     candidates = [u for u in urls
                   if not _is_secondary_source(u)]
     # Najpierw domena pasująca do nazwy z tytułu (upstage.ai dla "Upstage...").
@@ -199,6 +195,7 @@ def enrich_article_with_research(settings, store, article_id: int, dry_run=False
         if dry_run:
             return {'url': url, 'chars': len(text)}
         store.update_article(article_id, body_pl=f'{article.body_pl}\n\n---\n\n{url}\n\n{text}')
+        store.add_research_engines(article_id, engines)
         return True
     return False
 

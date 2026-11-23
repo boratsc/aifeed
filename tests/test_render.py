@@ -230,3 +230,13 @@ def test_article_credit_lists_research_engines():
     a = Article(1, 'n', 'T', 'L', 'B', 'modele', [], None, None, [], 1.0, None, 1.0)
     html = render_article(a, model='redaktor', research_engines=['Firecrawl', 'Sonar'])
     assert 'Firecrawl' in html and 'Sonar' in html
+
+
+def test_write_site_lists_research_engines_in_footer(tmp_path):
+    store = Store(str(tmp_path / "db"))
+    aid = store.add_article("news", "T", "L", "B", "modele", [{"name": "S", "url": "https://x"}], None, None, [], 1.0, None)
+    store.add_research_engines(aid, ["Firecrawl", "Sonar"])
+    out = tmp_path / "site"
+    write_site(store, str(out))
+    html = (out / "a" / "news" / "index.html").read_text()
+    assert "research: Firecrawl, Sonar" in html

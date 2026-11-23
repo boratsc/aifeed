@@ -739,5 +739,6 @@ def test_research_engines_are_saved_for_article(tmp_path, monkeypatch):
     real_client = httpx.Client
     monkeypatch.setattr(fetch.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(
         lambda request: httpx.Response(200, content=f'<main><div class="prose"><p>{body}</p></div></main>'.encode()))))
-    fetch.research_materials(Settings(), store, aid)
-    assert store.research_engines()[aid] == ['Firecrawl', 'Sonar']
+    materials = fetch.research_materials(Settings(), store, aid)
+    assert materials[0]['research_engines'] == ['Firecrawl', 'Sonar']
+    assert store.research_engines() == {}

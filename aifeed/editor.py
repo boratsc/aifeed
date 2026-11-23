@@ -48,7 +48,7 @@ def run(settings, store):
             for item in group:
                 try:
                     group = group + research_for_topic(settings, store, item["title"], item.get("summary_pl") or "",
-                                                      {m["url"] for m in group}, article_id=article_id)
+                                                      {m["url"] for m in group})
                 except Exception as exc:
                     logging.warning("research failed for raw %s: %s", item["id"], exc)
                 break
@@ -102,6 +102,10 @@ def _process_group(settings, db_path, key, group, sources, image):
             for item in group:
                 if item.get("id") is not None:
                     store.mark_processed(item["id"])
+            if decision["verdict"] != "same":
+                engines = list(dict.fromkeys(engine for item in group for engine in item.get("research_engines", [])))
+                if engines:
+                    store.add_research_engines(article_id, engines)
             store.mark_done(key, article_id, model=model, models=article.get("models"))
         return count
     except Exception as exc:
