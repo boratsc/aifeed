@@ -616,3 +616,19 @@ def test_research_dry_run_reports_without_writing(tmp_path, monkeypatch):
     assert result['url'] == 'https://github.com/vfaner/jync/releases'
     assert result['chars'] >= 400
     assert store.article_by_id(aid).body_pl == 'Opis.'
+
+
+def test_relevance_rejects_other_product_with_shared_generic_words():
+    from aifeed.fetch import is_relevant
+    title = 'Jync v2.4.5: synchronizacja komentarzy i priorytet kursorow'
+    page = ('Jync to narzedzie do synchronizacji danych z priorytetem kursorow, '
+            'ktore opisuje synchronizacje komentarzy w innych produktach. ' * 4)
+    assert is_relevant(title, page) is True
+    page_db2 = ('Db2 12 and 13 add SQL enhancements; administrators synchronizuja komentarzy '
+                'i ustawiaja priorytet w kolejkach. ' * 5)
+    assert is_relevant(title, page_db2) is False
+
+
+def test_relevance_ignores_numeric_only_match():
+    from aifeed.fetch import is_relevant
+    assert is_relevant('Edge0-145B AutoArk laptop', 'Unrelated post about 145B and 2026 conference schedule') is False

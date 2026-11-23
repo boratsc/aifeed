@@ -115,9 +115,24 @@ def _tokens(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-z0-9]{4,}", (text or "").lower()) if w not in _STOP}
 
 
+_GENERIC = {"modelu", "modeli", "model", "models", "narzedzie", "narzedzia", "synchronizacja",
+            "komentarzy", "priorytet", "kursorow", "wydanie", "wersji", "nowe", "danych"}
+
+
 def is_relevant(article_title: str, text: str) -> bool:
-    """Strona musi dzielić z tytułem co najmniej dwa charakterystyczne słowa."""
-    return len(_tokens(article_title) & _tokens(text)) >= 2
+    """Wymaga wspólnej nazwy własnej lub dwóch specyficznych słów; liczby i słowa ogólne nie liczą się."""
+    title_tokens = _tokens(article_title)
+    page_tokens = _tokens(text)
+    def alpha(tokens):
+        # "145b" to numer wersji, nie nazwa własna
+        return {w for w in tokens if not w.isdigit() and not re.fullmatch(r"\d+\w?", w)}
+
+    distinctive = alpha(title_tokens & page_tokens) - _GENERIC
+    if len(distinctive) >= 2:
+        return True
+    # nazwa produktu zwykle stoi na początku tytułu ("Jync v2.4.5: ...")
+    head = alpha({w for w in re.findall(r"[a-z0-9]{4,}", article_title.lower()[:40])})
+    return bool(distinctive & head)
 
 
 def enrich_article_with_research(settings, store, article_id: int, dry_run=False):
