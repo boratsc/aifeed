@@ -51,6 +51,36 @@ def render_article(article, previous=None, model=None, models=None, research_eng
 </article></main><div class="lightbox" id="lightbox"><img src="" alt=""></div><script>var lb=document.getElementById('lightbox');var lbi=lb.querySelector('img');document.querySelectorAll('.body img').forEach(function(i){i.addEventListener('click',function(){lbi.src=i.src;lbi.alt=i.alt;lb.classList.add('open');});});lb.addEventListener('click',function(){lb.classList.remove('open');});document.addEventListener('keydown',function(e){if(e.key==='Escape')lb.classList.remove('open');});</script></body></html>''').render(article=article, previous=previous, sources=sources, body_html=body_html, model=model, credit=', '.join(dict.fromkeys(models or ([model] if model else []))), research_engines=research_engines or [])
 
 
+def _image_dims(data: bytes):
+    """Wymiary bez zależności: PNG/JPEG/GIF/WEBP wystarczą dla okładek."""
+    import struct
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return struct.unpack(">II", data[16:24])
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return struct.unpack("<HH", data[6:10])
+    if data[:2] == b"\xff\xd8":
+        i = 2
+        while i < len(data) - 9:
+            if data[i] != 0xFF:
+                i += 1
+                continue
+            marker = data[i + 1]
+            if marker in (0xC0, 0xC1, 0xC2):
+                h, w = struct.unpack(">HH", data[i + 5:i + 9])
+                return w, h
+            i += 2 + struct.unpack(">H", data[i + 2:i + 4])[0]
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP" and data[12:16] == b"VP8X":
+        return 1 + int.from_bytes(data[24:27], "little"), 1 + int.from_bytes(data[27:30], "little")
+    return None
+
+
+def _upsize_url(url: str) -> str:
+    """Znane wzorce CDN miniaturek -> pełny rozmiar (WordPress -500x500, Google max-600x600)."""
+    url = re.sub(r"-\d{2,4}x\d{2,4}(?=\.(jpg|jpeg|png|webp))", "", url)
+    url = re.sub(r"\.max-\d+x\d+\.", ".", url)
+    return url
+
+
 def _fetch_images(articles, img_dir, client):
     img_path = Path(img_dir)
     img_path.mkdir(parents=True, exist_ok=True)
@@ -64,9 +94,13 @@ def _fetch_images(articles, img_dir, client):
             if ext.lower() not in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}:
                 ext = ".jpg"
             filename = f"{article.slug}{ext}"
-            resp = client.get(url, timeout=15, follow_redirects=True)
+            resp = client.get(_upsize_url(url), timeout=15, follow_redirects=True)
             resp.raise_for_status()
             if len(resp.content) > 2 * 1024 * 1024:
+                continue
+            dims = _image_dims(resp.content)
+            if dims and min(dims) < 100:
+                article.image = None  # ikona/awatara 30x30 to nie okładka
                 continue
             (img_path / filename).write_bytes(resp.content)
             article.image = filename

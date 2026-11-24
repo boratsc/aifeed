@@ -247,3 +247,33 @@ def test_feed_thumbnail_aligns_with_title_not_timestamp():
     a = Article(1, 'n', 'T', 'L', 'B', 'modele', [], None, None, [], 1.0, None, 1.0, 'n.jpg')
     html = render_feed([a])
     assert '.news-body .thumb-link{margin-top:' in html.replace(' ', '') or '.thumb-link{margin-top:' in html.replace(' ', '')
+
+
+def test_fetch_images_skips_tiny_sources(tmp_path, monkeypatch):
+    import aifeed.render as render
+    import httpx
+    from aifeed.store import Article
+    # 1x1 GIF
+    tiny = b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;'
+    a = Article(1, 'n', 'T', 'L', 'B', 'modele', [], None, None, [], 1.0, None, 1.0, 'https://x/tiny.gif')
+    real_client = httpx.Client
+    monkeypatch.setattr(render.httpx, 'Client', lambda **kw: real_client(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, content=tiny))))
+    render._fetch_images([a], str(tmp_path), httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, content=tiny))))
+    assert a.image is None  # odrzucony, nie zapisany
+    assert not list(tmp_path.glob('*'))
+
+
+def test_fetch_images_upsizes_known_cdn_patterns(tmp_path, monkeypatch):
+    import aifeed.render as render
+    import httpx
+    from aifeed.store import Article
+    seen = []
+    big = b'\xff\xd8\xff\xe0' + b'\x00' * 100  # fake jpg bytes
+    def handler(request):
+        seen.append(str(request.url))
+        return httpx.Response(200, content=big)
+    a = Article(1, 'n', 'T', 'L', 'B', 'modele', [], None, None, [], 1.0, None, 1.0,
+                'https://cdn.arstechnica.net/wp-content/uploads/2026/11/x-500x500.jpg')
+    render._fetch_images([a], str(tmp_path), httpx.Client(transport=httpx.MockTransport(handler)))
+    assert seen == ['https://cdn.arstechnica.net/wp-content/uploads/2026/11/x.jpg']
