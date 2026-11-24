@@ -701,3 +701,30 @@ def test_edit_article_trims_oversized_material():
     import json
     mats = json.loads(captured['user'])
     assert len(mats[0]['content']) <= 12000
+
+
+def test_group_materials_merges_same_repo_commits(monkeypatch):
+    import aifeed.editor as editor
+    materials = [
+        {"id": 1, "source_id": "anthropic_skills", "url": "https://github.com/anthropics/skills/commit/a", "title": "Update claude-api skill", "summary_pl": "x"},
+        {"id": 2, "source_id": "anthropic_skills", "url": "https://github.com/anthropics/skills/commit/b", "title": "claude-api: new guides", "summary_pl": "y"},
+        {"id": 3, "source_id": "superpowers", "url": "https://github.com/obra/superpowers/commit/c", "title": "Release v7.0.2", "summary_pl": "z"},
+        {"id": 4, "source_id": "openai", "url": "https://openai.com/news/x", "title": "GPT news", "summary_pl": "w"},
+    ]
+    # model nie zwraca nic sensownego -> deterministyczny fallback po repo
+    monkeypatch.setattr(editor, "chat", lambda *a, **k: [])
+    groups = editor.group_materials(Settings(), materials)
+    assert [1, 2] in groups
+    assert [3] in groups
+    assert [4] in groups
+
+
+def test_group_materials_keeps_different_repos_apart(monkeypatch):
+    import aifeed.editor as editor
+    materials = [
+        {"id": 1, "source_id": "claude_code", "url": "https://github.com/anthropics/claude-code/releases/tag/v1", "title": "v1", "summary_pl": "x"},
+        {"id": 2, "source_id": "opencode", "url": "https://github.com/sst/opencode/releases/tag/v2", "title": "v2", "summary_pl": "y"},
+    ]
+    monkeypatch.setattr(editor, "chat", lambda *a, **k: [])
+    groups = editor.group_materials(Settings(), materials)
+    assert [1] in groups and [2] in groups
