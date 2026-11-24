@@ -240,3 +240,10 @@ def test_write_site_lists_research_engines_in_footer(tmp_path):
     write_site(store, str(out))
     html = (out / "a" / "news" / "index.html").read_text()
     assert "research: Firecrawl, Sonar" in html
+
+
+def test_feed_thumbnail_aligns_with_title_not_timestamp():
+    from aifeed.store import Article
+    a = Article(1, 'n', 'T', 'L', 'B', 'modele', [], None, None, [], 1.0, None, 1.0, 'n.jpg')
+    html = render_feed([a])
+    assert '.news-body .thumb-link{margin-top:' in html.replace(' ', '') or '.thumb-link{margin-top:' in html.replace(' ', '')
