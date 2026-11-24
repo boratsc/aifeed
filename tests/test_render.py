@@ -277,3 +277,16 @@ def test_fetch_images_upsizes_known_cdn_patterns(tmp_path, monkeypatch):
                 'https://cdn.arstechnica.net/wp-content/uploads/2026/11/x-500x500.jpg')
     render._fetch_images([a], str(tmp_path), httpx.Client(transport=httpx.MockTransport(handler)))
     assert seen == ['https://cdn.arstechnica.net/wp-content/uploads/2026/11/x.jpg']
+
+
+def test_fetch_images_skips_avatar_urls():
+    import aifeed.render as render
+    import httpx
+    from aifeed.store import Article
+    a = Article(1, 'n', 'T', 'L', 'B', 'modele', [], None, None, [], 1.0, None, 1.0,
+                'https://avatars.githubusercontent.com/u/123?s=60&v=4')
+    calls = []
+    render._fetch_images([a], '/tmp/x', httpx.Client(transport=httpx.MockTransport(
+        lambda r: calls.append(1) or httpx.Response(200, content=b'x'))))
+    assert a.image is None
+    assert calls == []  # nawet nie pobieramy awatara

@@ -88,6 +88,9 @@ def _fetch_images(articles, img_dir, client):
         url = article.image
         if not url or not url.startswith(("http://", "https://")):
             continue
+        if "avatars.githubusercontent.com" in url or "/avatars/" in url:
+            article.image = None  # awatar autora to nie okładka newsa
+            continue
         try:
             parsed = urlsplit(url)
             ext = Path(parsed.path).suffix or ".jpg"
