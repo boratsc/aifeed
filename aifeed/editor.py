@@ -10,6 +10,7 @@ import time
 
 from .llm import chat, clean_pl, last_model
 from .fetch import research_for_topic
+from .render import write_site
 from .render import slugify
 from .store import Store
 from .dedup import classify_candidate
@@ -60,7 +61,14 @@ def run(settings, store):
         futures = [pool.submit(_process_group, settings, store.db_path, key, group, sources, image)
                    for key, group, sources, image in pending]
         for future in futures:
-            count += future.result()
+            added = future.result()
+            count += added
+            if added:
+                # Publikuj na bieżąco: długi bieg nie może trzymać strony w stanie z rana.
+                try:
+                    write_site(store, settings.out_dir, img_dir=settings.img_dir)
+                except Exception as exc:
+                    logging.warning("incremental render failed: %s", exc)
     return count
 
 

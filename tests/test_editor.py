@@ -669,3 +669,21 @@ def test_editor_prompt_forbids_url_paths_in_prose(monkeypatch):
     editor.edit_article(Settings(), [{'title': 'T'}], [{'name': 'S', 'url': 'https://example.org'}])
     assert 'adresów URL' in captured['system']
 
+
+
+def test_run_renders_incrementally_after_each_new_article(tmp_path, monkeypatch):
+    import aifeed.editor as editor
+    from aifeed.store import Store
+    store = Store(str(tmp_path / 'db'))
+    ids = [store.upsert_raw('s', f'https://x/{i}', f'T{i}', 1000.0+i, 'pelny tekst ' * 100, None) for i in range(2)]
+    store.db.execute("UPDATE raw SET triaged=1,relevant=1,category='modele',summary_pl='F'")
+    store.db.commit()
+    monkeypatch.setattr(editor, 'group_materials', lambda settings, materials: [[i] for i in ids])
+    out = {'title_pl': 'T', 'lead_pl': 'L', 'body_pl': 'Prawdziwa tresc artykulu o faktach i liczbach.', 'category': 'modele'}
+    monkeypatch.setattr(editor, 'edit_article', lambda settings, materials, sources: {**out, 'sources': sources})
+    monkeypatch.setattr(editor, 'classify_candidate', lambda *a: {'verdict': 'new', 'article_id': None, 'embedding': [1.0]})
+    renders = []
+    monkeypatch.setattr(editor, 'write_site', lambda store, out_dir, img_dir=None: renders.append(1), raising=False)
+    s = Settings(db_path=str(tmp_path / 'db'), out_dir=str(tmp_path / 'site'), img_dir=str(tmp_path / 'img'))
+    assert editor.run(s, store) == 2
+    assert len(renders) == 2  # render po każdej nowej grupie, nie tylko na końcu
