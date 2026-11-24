@@ -124,3 +124,19 @@ def test_run_reports_backlog(tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline, "write_site", lambda *a, **k: None)
     result = pipeline.run(Settings(db_path=str(tmp_path / "db")), now=1000000)
     assert result["backlog"] == 1
+
+
+def test_main_retries_when_run_raises(tmp_path, monkeypatch):
+    """Awaria (np. restart gatewaya) nie może pomijać pętli ponowień."""
+    import aifeed.__main__ as entry
+    calls = {"n": 0}
+    def fake_run(settings, now=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ConnectionError("connection refused")
+        return {"new": 3, "errors": {}, "backlog": 0}
+    monkeypatch.setattr(entry, "run", fake_run)
+    monkeypatch.setattr(entry.time, "sleep", lambda s: None)
+    monkeypatch.setattr(entry, "load_env", lambda p: None)
+    entry.main(retry_interval=1800)
+    assert calls["n"] == 2

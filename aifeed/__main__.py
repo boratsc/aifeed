@@ -21,14 +21,18 @@ def main(retry_interval=1800, max_retries=4):
     """Ponawiaj co retry_interval (30 min), dopóki są zaległości; max_retries chroni przed pętlą bez końca."""
     load_env(os.environ.get("AIFEED_ENV", ".env"))
     settings = Settings.from_env()
-    result = run(settings)
-    print(json.dumps(result, ensure_ascii=False), flush=True)
-    retries = 0
-    while result.get("backlog") and retries < max_retries:
-        retries += 1
-        time.sleep(retry_interval)
-        result = run(settings)
-        print(json.dumps(result, ensure_ascii=False), flush=True)
+    for attempt in range(max_retries + 1):
+        try:
+            result = run(settings)
+            print(json.dumps(result, ensure_ascii=False), flush=True)
+            if not result.get("backlog"):
+                break
+        except Exception as exc:
+            # Awaria transportu (restart gatewaya, blip DNS) nie może ominąć ponowień.
+            print(json.dumps({"error": str(exc)[:200]}), flush=True)
+            result = {"backlog": 1}
+        if attempt < max_retries:
+            time.sleep(retry_interval)
 
 
 if __name__ == "__main__":
