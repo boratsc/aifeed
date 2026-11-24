@@ -91,9 +91,9 @@ def test_ingest_feeds_respects_cutoff_and_deduplicates(tmp_path):
     store = Store(str(tmp_path / "feed.db"))
     with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, content=feed))) as client:
         sources = {"source": "https://example.org/feed"}
-        assert ingest_feeds(client, store, sources, since_ts=1795156200) == (1, {})
+        assert ingest_feeds(client, store, sources, since_ts=1795156200) == (2, {})
         assert ingest_feeds(client, store, sources, since_ts=1795156200) == (0, {})
-    assert [item.title for item in store.untriaged()] == ["Fresh"]
+    assert sorted(item.title for item in store.untriaged()) == ["Fresh", "No date"]
 
 
 def test_fetch_sources_continues_after_failure():
@@ -742,3 +742,40 @@ def test_research_engines_are_saved_for_article(tmp_path, monkeypatch):
     materials = fetch.research_materials(Settings(), store, aid)
     assert materials[0]['research_engines'] == ['Firecrawl', 'Sonar']
     assert store.research_engines() == {}
+
+
+def test_ingest_accepts_dateless_catalog_items():
+    import httpx
+    from aifeed.fetch import ingest_feeds
+    from aifeed.store import Store
+    import tempfile, os
+    store = Store(os.path.join(tempfile.mkdtemp(), "db"))
+    feed = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>
+    <item><title>Zapier deal</title><link>https://buguoshixc.github.io/ai-deals-aggregator/deal/1</link>
+    <description>Zapier promo offer details for developers, free tier included.</description></item>
+    </channel></rss>"""
+    def handler(request):
+        return httpx.Response(200, content=feed)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        n, err = ingest_feeds(client, store, {"ai_deals_aggregator": "https://buguoshixc.github.io/ai-deals-aggregator/feed.xml"}, 0)
+    assert n == 1
+    row = store.db.execute("SELECT title, published_at FROM raw").fetchone()
+    assert row["title"] == "Zapier deal"
+    assert row["published_at"] > 0  # fallback do czasu ingestu
+
+
+def test_ingest_still_respects_cutoff_for_dated_items():
+    import httpx
+    from aifeed.fetch import ingest_feeds
+    from aifeed.store import Store
+    import tempfile, os
+    store = Store(os.path.join(tempfile.mkdtemp(), "db"))
+    feed = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>f</title>
+    <item><title>Old</title><link>https://x/old</link>
+    <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate><description>old item</description></item>
+    </channel></rss>"""
+    def handler(request):
+        return httpx.Response(200, content=feed)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        n, _ = ingest_feeds(client, store, {"src": "https://x/feed"}, 1795000000)
+    assert n == 0

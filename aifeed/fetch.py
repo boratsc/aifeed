@@ -244,7 +244,11 @@ def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts:
     inserted = 0
     for item in items:
         published_at = item["published_at"]
-        if published_at is None or published_at < since_ts:
+        if published_at is None:
+            # Katalogi ofert (ai_deals_aggregator) nie podają dat; pozycje są
+            # deduplikowane po URL, więc brak daty nie grozi duplikatami.
+            published_at = time.time()
+        elif published_at < since_ts:
             continue
         title = item.get("title") or ""
         if title.strip().lower().startswith("[ainews]"):
