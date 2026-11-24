@@ -668,3 +668,4 @@ def test_editor_prompt_forbids_url_paths_in_prose(monkeypatch):
     monkeypatch.setattr(editor, 'chat', fake_chat)
     editor.edit_article(Settings(), [{'title': 'T'}], [{'name': 'S', 'url': 'https://example.org'}])
     assert 'adresów URL' in captured['system']
+

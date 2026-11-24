@@ -28,4 +28,7 @@ def run(settings, now=None):
     write_site(store, settings.out_dir, img_dir=settings.img_dir)
     if not errors:
         store.log_run(now, time.time(), new_count, [])
-    return {"new": new_count, "errors": errors}
+    backlog = store.db.execute(
+        "SELECT count(*) FROM raw WHERE triaged=1 AND relevant=1 AND id NOT IN (SELECT raw_id FROM processed_raw)"
+    ).fetchone()[0]
+    return {"new": new_count, "errors": errors, "backlog": backlog}

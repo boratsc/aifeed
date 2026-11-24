@@ -44,7 +44,7 @@ def test_pipeline_orders_fetch_triage_edit_render(tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline, "write_site", lambda *args, **kwargs: calls.append("render"))
     result = run(Settings(db_path=str(tmp_path / "db")), now=1000000)
     assert calls == ["fetch", "fetch", "triage", "edit", "render"]
-    assert result == {"new": 1, "errors": {}}
+    assert result["new"] == 1 and result["errors"] == {}
 
 
 class FakeClient:
@@ -75,3 +75,52 @@ def test_pipeline_ingests_promos_with_old_cutoff_not_news_cutoff(tmp_path, monke
     news_call, promo_call = seen[0], seen[1]
     assert "aitkradar_deals" not in news_call[0]
     assert promo_call[1] == 0  # promocje nie filtrowane po dacie
+
+
+def test_main_retries_backlog_until_empty(tmp_path, monkeypatch):
+    import aifeed.__main__ as entry
+    calls = {"n": 0}
+    sleeps = []
+    def fake_run(settings, now=None):
+        calls["n"] += 1
+        # pierwsza próba: padła sieć, zostały zaległości; druga: pusto
+        if calls["n"] == 1:
+            return {"new": 0, "errors": {}, "backlog": 5}
+        return {"new": 5, "errors": {}, "backlog": 0}
+    monkeypatch.setattr(entry, "run", fake_run)
+    monkeypatch.setattr(entry.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(entry, "load_env", lambda p: None)
+    entry.main(retry_interval=1800)
+    assert calls["n"] == 2
+    assert sleeps == [1800]
+
+
+def test_main_stops_after_max_retries(tmp_path, monkeypatch):
+    import aifeed.__main__ as entry
+    calls = {"n": 0}
+    def fake_run(settings, now=None):
+        calls["n"] += 1
+        return {"new": 0, "errors": {}, "backlog": 3}
+    monkeypatch.setattr(entry, "run", fake_run)
+    monkeypatch.setattr(entry.time, "sleep", lambda s: None)
+    monkeypatch.setattr(entry, "load_env", lambda p: None)
+    entry.main(retry_interval=1800, max_retries=2)
+    assert calls["n"] == 3  # pierwsza próba + 2 retry
+
+
+def test_run_reports_backlog(tmp_path, monkeypatch):
+    import aifeed.pipeline as pipeline
+    from aifeed.store import Store
+    store = Store(str(tmp_path / "db"))
+    rid = store.upsert_raw("s", "https://x/1", "T", 1000.0, "C", None)
+    store.db.execute("UPDATE raw SET triaged=1, relevant=1")
+    store.db.commit()
+    monkeypatch.setattr(pipeline, "Store", lambda path: store)
+    monkeypatch.setattr(pipeline.httpx, "Client", lambda: FakeClient())
+    monkeypatch.setattr(pipeline, "ingest_feeds", lambda *a, **k: (0, {}))
+    monkeypatch.setattr(pipeline, "fetch_tool_versions", lambda c: {})
+    monkeypatch.setattr(pipeline.triage, "run", lambda *a: 0)
+    monkeypatch.setattr(pipeline.editor, "run", lambda *a: 0)
+    monkeypatch.setattr(pipeline, "write_site", lambda *a, **k: None)
+    result = pipeline.run(Settings(db_path=str(tmp_path / "db")), now=1000000)
+    assert result["backlog"] == 1

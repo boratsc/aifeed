@@ -182,3 +182,23 @@ def test_last_model_is_thread_local(monkeypatch):
     old = llm.last_model()
     # wątek główny nie zmienia się przez symulację innego wątku
     assert llm.last_model() == old
+
+def test_chat_retries_dns_failure(monkeypatch):
+    import aifeed.llm as llm
+    import httpx
+    from aifeed.config import Settings
+    calls = {"n": 0}
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise httpx.ConnectError("[Errno -3] Temporary failure in name resolution", request=request)
+        chunk = {"model": "m", "choices": [{"delta": {"content": '{"ok": true}'}}]}
+        body = "data: " + json.dumps(chunk) + "\n\ndata: [DONE]\n\n"
+        return httpx.Response(200, content=body.encode(), headers={"content-type": "text/event-stream"})
+    real_client = httpx.Client
+    monkeypatch.setattr(llm.httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(handler)))
+    slept = []
+    monkeypatch.setattr(llm.time, "sleep", lambda s: slept.append(s))
+    assert llm.chat(make_settings(), "m", "sys", "usr") == {"ok": True}
+    assert calls["n"] == 3
+    assert slept == [2.0, 4.0]

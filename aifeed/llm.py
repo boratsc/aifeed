@@ -96,6 +96,11 @@ def chat(settings: Settings, model: str, system: str, user: str,
                     if exc.response.status_code not in (429, 503) or http_attempt == settings.editor_429_retries:
                         raise
                     time.sleep(2 ** (http_attempt + 1) + random.uniform(0, 1))
+                except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
+                    # przejściowa awaria DNS/sieci nie może zerować biegu
+                    if http_attempt == settings.editor_429_retries:
+                        raise
+                    time.sleep(2 ** (http_attempt + 1))
             # Reasoning models (NIM/Nemotron/Mistral-T) may return only reasoning_content.
             content = "".join(parts) or "".join(reasoning)
             if not json_mode:
