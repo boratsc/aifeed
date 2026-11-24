@@ -687,3 +687,17 @@ def test_run_renders_incrementally_after_each_new_article(tmp_path, monkeypatch)
     s = Settings(db_path=str(tmp_path / 'db'), out_dir=str(tmp_path / 'site'), img_dir=str(tmp_path / 'img'))
     assert editor.run(s, store) == 2
     assert len(renders) == 2  # render po każdej nowej grupie, nie tylko na końcu
+
+
+def test_edit_article_trims_oversized_material():
+    import aifeed.editor as editor
+    captured = {}
+    def fake_chat(settings, model, system, user, **kw):
+        captured['user'] = user
+        return '{"title_pl":"T","lead_pl":"L","category":"modele","bench":null,"promo":false}\n\n---BODY---\n\nPrawdziwa tresc artykulu o faktach i liczbach.'
+    import unittest.mock as m
+    with m.patch.object(editor, 'chat', fake_chat):
+        editor.edit_article(Settings(), [{'title': 'T', 'content': 'x' * 65000}], [{'name': 'S', 'url': 'https://example.org'}])
+    import json
+    mats = json.loads(captured['user'])
+    assert len(mats[0]['content']) <= 12000

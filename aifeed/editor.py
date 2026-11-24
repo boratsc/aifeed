@@ -251,6 +251,9 @@ def edit_article(settings, materials, sources):
         "bez żadnego escapowania i bez znaków JSON. "
         "body ma najwyżej " + str(MAX_WORDS) + " słów (sufit techniczny, nie cel)."
     )
+    # Bardzo długie materiały (np. 65k release notes) modele ucinają w pół zdania.
+    # Przytnij do 12k znaków: rdzeń changelogu wystarcza na artykuł.
+    materials = [{**m, "content": (m.get("content") or "")[:12000]} for m in materials]
     models_used: list[str] = []
 
     def _remember():
