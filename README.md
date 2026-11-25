@@ -9,7 +9,7 @@ przydaje się osobom, które budują z AI, i tłumaczy na polski.
 
 **[→ ai.gradzik.org](https://ai.gradzik.org)**
 
-[![ai:///feed — strona główna](docs/img/screenshot-desktop.png)](https://ai.gradzik.org)
+[![ai:///feed, strona główna](docs/img/screenshot-desktop.png)](https://ai.gradzik.org)
 
 </div>
 
