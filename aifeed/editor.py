@@ -91,7 +91,8 @@ def _process_group(settings, db_path, key, group, sources, image):
         if image and isinstance(article, dict):
             article["image"] = image
         with _save_lock:
-            decision = classify_candidate(settings, store, {"title": article["title_pl"], "summary_pl": article["lead_pl"]})
+            decision = classify_candidate(settings, store, {"title": article["title_pl"], "summary_pl": article["lead_pl"],
+                                                         "urls": [item.get("url") for item in group]})
             count = 0
             if decision["verdict"] == "same":
                 article_id = decision["article_id"]

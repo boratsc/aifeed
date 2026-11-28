@@ -68,3 +68,16 @@ def test_candidate_matches_skips_mismatched_dimensions():
     query = [1.0, 0.0, 0.0]
     embeddings = [(1, [1.0]), (2, [1.0, 0.0, 0.0])]  # id1 ma dim=1 (stub), id2 pasuje
     assert candidate_matches(query, embeddings, 0.9) == [(2, 1.0)]
+
+
+def test_release_of_same_base_version_merges_without_model(tmp_path, monkeypatch):
+    import aifeed.dedup as dedup
+    from aifeed.dedup import release_keys
+    url = "https://github.com/github/copilot-cli/releases/tag/v1.0.118-%d"
+    assert release_keys([url % 0]) == release_keys([url % 2])
+    store = Store(str(tmp_path / "db"))
+    aid = store.add_article("a", "A", "lead", "body", "modele", [{"url": url % 0}], None, None, [1.0], time.time(), None)
+    monkeypatch.setattr(dedup, "vector", lambda settings, text: [0.0, 1.0])
+    monkeypatch.setattr(dedup, "chat", lambda *args: pytest.fail("model called"))
+    decision = classify_candidate(Settings(), store, {"title": "B", "summary_pl": "x", "urls": [url % 2]})
+    assert (decision["verdict"], decision["article_id"]) == ("merge", aid)

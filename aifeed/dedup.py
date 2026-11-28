@@ -1,18 +1,38 @@
 """Retrieve candidate matches; a language model decides topic equivalence."""
 import json
+import re
+import time
 
 from .llm import chat
 from .embed import vector
 from .store import cosine
 
 
+_RELEASE = re.compile(r"https?://github\.com/([^/]+/[^/]+)/releases/tag/v?([^/?#]+)", re.I)
+
+
+def release_keys(urls):
+    """(repo, wersja bazowa) z URL-i wydań GitHub; 1.0.118-2 i 1.0.118 to ten sam klucz."""
+    keys = set()
+    for url in urls or ():
+        m = _RELEASE.match(url or "")
+        if m:
+            keys.add((m.group(1).lower(), re.sub(r"-.+$", "", m.group(2))))
+    return keys
+
+
 def classify_candidate(settings, store, candidate):
     embedding = vector(settings, candidate["title"] + " " + candidate["summary_pl"])
+    keys = release_keys(candidate.get("urls"))
+    if keys:  # kolejny prerelease/wydanie tej samej wersji dopisujemy do istniejącego artykułu
+        for article in store.articles_since(time.time() - settings.dedup_days * 86400):
+            if keys & release_keys(source.get("url") for source in article.sources):
+                return {"verdict": "merge", "article_id": article.id, "embedding": embedding}
     # Recall threshold, not an equivalence verdict. The observed Polish paraphrase scored 0.72.
     matches = candidate_matches(embedding, [(aid, emb) for aid, title, emb in store.all_embeddings(settings.dedup_days)], min(settings.dedup_threshold, 0.70))
     ids = {aid for aid, score in matches}
     articles = [{"id": article.id, "title_pl": article.title_pl, "lead_pl": article.lead_pl}
-                for article in store.articles_since(__import__("time").time() - settings.dedup_days * 86400)
+                for article in store.articles_since(time.time() - settings.dedup_days * 86400)
                 if article.id in ids]
     decision = decide(settings, {"title": candidate["title"], "summary": candidate["summary_pl"]}, articles)
     decision["embedding"] = embedding
