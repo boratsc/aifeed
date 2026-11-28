@@ -23,7 +23,7 @@ class Settings:
     editor_429_retries: int = 4
     editor_stale_seconds: int = 1800
     firecrawl_key: str = ""
-    firecrawl_budget: int = 950  # kredytów/mc; free plan ma 1000, zostaw zapas
+    firecrawl_budget: int = 1450  # kredytów/mc; plan ma 1500, zostaw zapas
     editor_fallback_model: str = ""  # eskalacja jakości: pusty = wyłączona
     research_enabled: bool = False  # research źródeł tylko dla cienkich newsów
     sonar_key: str = ""

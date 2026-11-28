@@ -489,7 +489,7 @@ def test_firecrawl_scrape_respects_budget():
     assert fetch.firecrawl_scrape(s, "https://x") == ""
 
 
-def test_ingest_uses_firecrawl_when_page_extraction_fails(monkeypatch):
+def test_ingest_does_not_scrape_but_relevant_thin_items_are_rendered_once(monkeypatch):
     import aifeed.fetch as fetch
     import httpx
     from aifeed.store import Store
@@ -502,10 +502,17 @@ def test_ingest_uses_firecrawl_when_page_extraction_fails(monkeypatch):
         if str(request.url).endswith("/feed"):
             return httpx.Response(200, content=feed)
         return httpx.Response(200, content=b"<html><body><script>spa</script></body></html>")
-    monkeypatch.setattr(fetch, "firecrawl_scrape", lambda s, url, store=None: "Pelna tresc strony wyrenderowana przez firecrawl, dostatecznie dluga.")
+    calls = []
+    monkeypatch.setattr(fetch, "firecrawl_scrape", lambda s, url, store=None: calls.append(url) or "Pelna tresc strony wyrenderowana przez firecrawl, dostatecznie dluga.")
     from aifeed.config import Settings
+    s = Settings(firecrawl_key="fc-test")
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        fetch.ingest_feeds(client, store, {"src": "https://spa.example/feed"}, 0, Settings(firecrawl_key="fc-test"))
+        fetch.ingest_feeds(client, store, {"src": "https://spa.example/feed"}, 0, s)
+    assert calls == []
+    item = dict(store.db.execute("SELECT * FROM raw").fetchone())
+    fetch.render_thin_materials(s, store, [item])
+    fetch.render_thin_materials(s, store, [item | {"content": "T"}])  # drugi raz: bez kredytu
+    assert len(calls) == 1
     assert "wyrenderowana przez firecrawl" in store.db.execute("SELECT content FROM raw").fetchone()["content"]
 
 

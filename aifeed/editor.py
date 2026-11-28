@@ -9,7 +9,7 @@ import threading
 import time
 
 from .llm import chat, clean_pl, last_model
-from .fetch import research_for_topic
+from .fetch import research_for_topic, render_thin_materials
 from .render import write_site
 from .render import slugify
 from .store import Store
@@ -30,6 +30,8 @@ def run(settings, store):
     materials = store.relevant_candidates()
     if not materials:
         return 0
+    if settings.firecrawl_key:
+        render_thin_materials(settings, store, materials)
     by_id = {item["id"]: item for item in materials}
     pending = []
     for ids in group_materials(settings, materials):

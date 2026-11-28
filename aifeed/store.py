@@ -196,6 +196,19 @@ class Store:
         self.db.execute("UPDATE editor_job SET updated_at = ? WHERE group_key = ?", (time.time(), group_key))
         self.db.commit()
 
+    def scrape_attempted(self, raw_id: int) -> bool:
+        self.db.execute("CREATE TABLE IF NOT EXISTS scrape_attempt (raw_id INTEGER PRIMARY KEY)")
+        return self.db.execute("SELECT 1 FROM scrape_attempt WHERE raw_id = ?", (raw_id,)).fetchone() is not None
+
+    def mark_scrape_attempted(self, raw_id: int):
+        self.db.execute("CREATE TABLE IF NOT EXISTS scrape_attempt (raw_id INTEGER PRIMARY KEY)")
+        self.db.execute("INSERT OR IGNORE INTO scrape_attempt (raw_id) VALUES (?)", (raw_id,))
+        self.db.commit()
+
+    def set_raw_content(self, raw_id: int, content: str):
+        self.db.execute("UPDATE raw SET content = ? WHERE id = ?", (content, raw_id))
+        self.db.commit()
+
     def firecrawl_used_this_month(self) -> int:
         self.db.execute("CREATE TABLE IF NOT EXISTS firecrawl_usage (month TEXT PRIMARY KEY, credits INTEGER DEFAULT 0)")
         month = time.strftime("%Y-%m")

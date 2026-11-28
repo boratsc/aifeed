@@ -269,17 +269,26 @@ def ingest_feeds(client: httpx.Client, store, sources: dict[str, str], since_ts:
                     item["content"] = text + ("\n\n" + "\n\n".join(figures) if figures else "")
                 except httpx.HTTPError:
                     pass
-                if settings is not None and len(item["content"] or "") < 200:
-                    # SPA/blokada: render JS przez Firecrawl (budżet kredytów pilnuje store).
-                    md = firecrawl_scrape(settings, item["url"], store)
-                    if len(md) > len(item["content"] or ""):
-                        item["content"] = md
+                # Firecrawl dopiero po triage, tylko dla istotnych (render_thin_materials).
         if len(item["content"]) < 40 and not is_promo:
             item["content"] = item["title"]  # news bez treści: fallback do tytułu
         before = store.db.total_changes
         store.upsert_raw(item["source_id"], item["url"], item["title"], published_at, item["content"], item.get("og_image"))
         inserted += store.db.total_changes - before
     return inserted, errors
+
+
+def render_thin_materials(settings, store, materials):
+    """Firecrawl tylko dla newsów uznanych za istotne, raz na URL; reszta nie zjada kredytów."""
+    for item in materials:
+        if (item.get("source_id") in PROMO_SOURCES or len(item.get("content") or "") >= 200
+                or store.scrape_attempted(item["id"])):
+            continue
+        store.mark_scrape_attempted(item["id"])
+        md = firecrawl_scrape(settings, item["url"], store)
+        if len(md) > len(item.get("content") or ""):
+            item["content"] = md
+            store.set_raw_content(item["id"], md)
 
 
 def fetch_sources(client: httpx.Client, sources: dict[str, str]) -> tuple[list[dict], dict[str, str]]:
